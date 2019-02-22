@@ -1,0 +1,42 @@
+{
+  "project_info": {
+    "project_number": "709488435504",
+    "firebase_url": "https://photoducer-f3a41.firebaseio.com",
+    "project_id": "photoducer-f3a41",
+    "storage_bucket": "photoducer-f3a41.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:709488435504:android:067e5068a6d8a5b8",
+        "android_client_info": {
+          "package_name": "com.greenappers.photoducer.android"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "709488435504-3bah7ouco1jkfgqjhfutvb6lpjqksav7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAGW7BGxj_Z2ZaDzbY3MuTNTPeSn2-a7_s"
+        }
+      ],
+      "services": {
+        "analytics_service": {
+          "status": 1
+        },
+        "appinvite_service": {
+          "status": 1,
+          "other_platform_oauth_client": []
+        },
+        "ads_service": {
+          "status": 2
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
