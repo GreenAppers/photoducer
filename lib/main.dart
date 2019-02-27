@@ -1,10 +1,12 @@
-import 'dart:io';
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:simple_permissions/simple_permissions.dart';
+import 'package:tflite/tflite.dart';
 
 const directoryName = 'Photoducer';
 
@@ -33,6 +35,7 @@ class _PhotoducerState extends State<Photoducer> {
   Permission readPermission = Permission.ReadExternalStorage;
   Permission writePermission = Permission.WriteExternalStorage;
   var renderedImage;
+  String loadedModel;
 
   @override
   Widget build(BuildContext context) {
@@ -41,43 +44,58 @@ class _PhotoducerState extends State<Photoducer> {
         title: Text('Photoducer'),
       ),
 
-      body: Column(
-        children: <Widget>[
-          Expanded(
-            child: PhotoducerCanvas(canvasKey),
-          ),
-          Container(
-            height: 100,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: <Widget>[
-                FlatButton(
-                  child: Icon(Icons.save),
-                  onPressed: () { 
-                    setState(() {
-                       renderedImage = canvasKey.currentState.rendered;
-                    });
-                    saveImage(context);
-                  },
-                ),
-
-                FlatButton(
-                  child: Icon(Icons.open_in_browser),
-                  onPressed: () { 
-                    loadImage(context);
-                  },
-                ),
-
-                FlatButton(
-                  child: Icon(Icons.refresh),
-                  onPressed: () {
-                    canvasKey.currentState.clear();
-                  },
-                ),
-              ],
+      body: Container( 
+        decoration: new BoxDecoration(color: Colors.blueGrey[50]),
+        child: Column(
+          children: <Widget>[
+            Spacer(),
+            PhotoducerCanvas(canvasKey),
+            Spacer(),
+        
+            Container(
+              height: 100,
+              decoration: new BoxDecoration(color: Colors.blueGrey[100]),
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: <Widget>[
+                  FlatButton(
+                    child: Icon(Icons.save),
+                    onPressed: () { 
+                      setState(() {
+                         renderedImage = canvasKey.currentState.rendered;
+                      });
+                      saveImage(context);
+                    },
+                  ),
+        
+                  FlatButton(
+                    child: Icon(Icons.open_in_browser),
+                    onPressed: () { 
+                      loadImage(context);
+                    },
+                  ),
+        
+                  FlatButton(
+                    child: Icon(Icons.refresh),
+                    onPressed: () {
+                      canvasKey.currentState.clear();
+                    },
+                  ),
+        
+                  FlatButton(
+                    child: Icon(Icons.toys),
+                    onPressed: () {
+                      setState(() {
+                         renderedImage = canvasKey.currentState.rendered;
+                      });
+                      generateImage(context);
+                    },
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -92,7 +110,8 @@ class _PhotoducerState extends State<Photoducer> {
   }
 
   Future<Null> saveImage(BuildContext context) async {
-    var pngBytes = await renderedImage.toByteData(format: ui.ImageByteFormat.png);
+    var image = await renderedImage;
+    var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
     if(!(await checkPermission(writePermission))) await requestPermission(writePermission);
     Directory directory = await getExternalStorageDirectory();
     String path = directory.path;
@@ -109,6 +128,28 @@ class _PhotoducerState extends State<Photoducer> {
   checkPermission(permission) async {
     bool result = await SimplePermissions.checkPermission(permission);
     return result;
+  }
+  
+  Future<Null> generateImage(BuildContext context) async {
+    await loadModel("edges2shoes");
+    var image = await renderedImage;
+    var rgbaBytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    var recognitions = await Tflite.runModelOnBinary(
+      binary: rgbaBytes.buffer.asUint8List(),
+      numResults: 1,
+    );
+  }
+
+  Future loadModel(name) async {
+    if (loadedModel == name) return;
+    try {
+      String res;
+      res = await Tflite.loadModel(model: "assets/" + name + ".tflite");
+      loadedModel = name;
+      debugPrint(res);
+    } on PlatformException {
+      debugPrint('Failed to load model.');
+    }
   }
 }
 
@@ -127,19 +168,19 @@ class _PhotoducerCanvasState extends State<PhotoducerCanvas> {
 
   void clear() {
     setState(() {
-      points.clear();
+      points = <Offset>[];
       backgroundImage = null;
     });
   }
 
   void setBackgroundImage(ui.Image image) {
     setState(() {
-      points.clear();
+      points = <Offset>[];
       backgroundImage = image;
     });
   }
 
-  ui.Image get rendered {
+  Future<ui.Image> get rendered async {
     ui.PictureRecorder recorder = ui.PictureRecorder();
     Canvas canvas = Canvas(recorder);
     PhotoducerCanvasPainter painter = PhotoducerCanvasPainter(backgroundImage, points);
@@ -151,13 +192,15 @@ class _PhotoducerCanvasState extends State<PhotoducerCanvas> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: EdgeInsets.all(1.0),
+      width: 256,
+      height: 256,
+
       child: GestureDetector(
         onPanUpdate: (DragUpdateDetails details) {
           setState(() {
             RenderBox box = context.findRenderObject();
             Offset point = box.globalToLocal(details.globalPosition);
-            if (point.dy < box.size.height)
+            if (point.dx >=0 && point.dy >= 0 && point.dx < box.size.width && point.dy < box.size.height)
               points = List.from(points)..add(point);
           });
         },
@@ -170,7 +213,7 @@ class _PhotoducerCanvasState extends State<PhotoducerCanvas> {
 
         child: Container(
           alignment: Alignment.topLeft,
-          color: Colors.blueGrey[50],
+          color: Colors.white,
           child: CustomPaint(
             painter: PhotoducerCanvasPainter(backgroundImage, points),
           ),
@@ -181,8 +224,8 @@ class _PhotoducerCanvasState extends State<PhotoducerCanvas> {
 }
 
 class PhotoducerCanvasPainter extends CustomPainter {
-  final ui.Image backgroundImage;
-  final List<Offset> points;
+  ui.Image backgroundImage;
+  List<Offset> points;
 
   PhotoducerCanvasPainter(this.backgroundImage, this.points);
 
@@ -195,7 +238,7 @@ class PhotoducerCanvasPainter extends CustomPainter {
     Paint paint = Paint()
       ..color = Colors.black
       ..strokeCap = StrokeCap.round
-      ..strokeWidth = 4.0;
+      ..strokeWidth = 1.0;
 
     if (backgroundImage != null) {
       canvas.drawImage(backgroundImage, Offset(0, 0), paint);
