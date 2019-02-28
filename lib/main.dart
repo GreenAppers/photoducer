@@ -2,13 +2,13 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker_saver/image_picker_saver.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:simple_permissions/simple_permissions.dart';
 import 'package:tflite/tflite.dart';
-
-const directoryName = 'Photoducer';
+import 'package:tuple/tuple.dart';
 
 void main() => runApp(PhotoducerApp());
 
@@ -32,8 +32,6 @@ class Photoducer extends StatefulWidget {
 
 class _PhotoducerState extends State<Photoducer> {
   GlobalKey<_PhotoducerCanvasState> canvasKey = GlobalKey();
-  Permission readPermission = Permission.ReadExternalStorage;
-  Permission writePermission = Permission.WriteExternalStorage;
   var renderedImage;
   String loadedModel;
 
@@ -78,7 +76,7 @@ class _PhotoducerState extends State<Photoducer> {
                   FlatButton(
                     child: Icon(Icons.refresh),
                     onPressed: () {
-                      canvasKey.currentState.clear();
+                      canvasKey.currentState.reset();
                     },
                   ),
         
@@ -99,56 +97,73 @@ class _PhotoducerState extends State<Photoducer> {
       ),
     );
   }
-
-  Future<Null> loadImage(BuildContext context) async {
-    if(!(await checkPermission(readPermission))) await requestPermission(readPermission);
-    Directory directory = await getExternalStorageDirectory();
-    String path = directory.path;
-    ui.Codec codec = await ui.instantiateImageCodec(File('$path/$directoryName/photo.png').readAsBytesSync());
-    ui.FrameInfo frame = await codec.getNextFrame();
-    canvasKey.currentState.setBackgroundImage(frame.image);
-  }
-
-  Future<Null> saveImage(BuildContext context) async {
+  
+  Future<String> saveImage(BuildContext context) async {
     var image = await renderedImage;
     var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    if(!(await checkPermission(writePermission))) await requestPermission(writePermission);
-    Directory directory = await getExternalStorageDirectory();
-    String path = directory.path;
-    debugPrint('Creating ' + path + '/' + directoryName);
-    await Directory('$path/$directoryName').create(recursive: true);
-    File('$path/$directoryName/photo.png').writeAsBytesSync(pngBytes.buffer.asInt8List());
+    return ImagePickerSaver.saveFile(fileData: pngBytes.buffer.asUint8List());
   }
 
-  requestPermission(permission) async {
-    PermissionStatus status = await SimplePermissions.requestPermission(permission);
-    return status == PermissionStatus.authorized;
+  Future<Null> loadImage(BuildContext context) async {
+    String filePath = await FilePicker.getFilePath(type: FileType.ANY);
+    ui.Codec codec = await ui.instantiateImageCodec(File(filePath).readAsBytesSync());
+    ui.FrameInfo frame = await codec.getNextFrame();
+    canvasKey.currentState.reset(frame.image);
   }
 
-  checkPermission(permission) async {
-    bool result = await SimplePermissions.checkPermission(permission);
-    return result;
-  }
-  
-  Future<Null> generateImage(BuildContext context) async {
-    await loadModel("edges2shoes");
+  Future<Null> stashImage(BuildContext context, String name) async {
     var image = await renderedImage;
-    var rgbaBytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-    var recognitions = await Tflite.runModelOnBinary(
-      binary: rgbaBytes.buffer.asUint8List(),
+    var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    Directory directory = await getApplicationDocumentsDirectory();
+    String path = directory.path;
+    File('$path/$name.png').writeAsBytesSync(pngBytes.buffer.asInt8List());
+  }
+
+  Future<Null> unstashImage(BuildContext context, String name) async {
+    Directory directory = await getApplicationDocumentsDirectory();
+    String path = directory.path;
+    ui.Codec codec = await ui.instantiateImageCodec(File('$path/$name.png').readAsBytesSync());
+    ui.FrameInfo frame = await codec.getNextFrame();
+    canvasKey.currentState.reset(frame.image);
+  }
+
+  Future<Null> generateImage(BuildContext context) async {
+    var loaded = await loadModel("edges2shoes");
+    if (!loaded) return;
+    var input = await renderedImage;
+    var rgbaBytes = await input.toByteData(format: ui.ImageByteFormat.rawRgba);
+    List<Uint8List> planes = [
+      new Uint8List(input.width * input.height),
+      new Uint8List(input.width * input.height),
+      new Uint8List(input.width * input.height),
+      new Uint8List(input.width * input.height),
+    ];
+    rgbaBytes.buffer.asUint8List().asMap().forEach((i, v) => { planes[i%4][i~/4] = v });
+    planes.removeAt(0);
+
+    debugPrint("Running model on frame");
+    var recognitions = await Tflite.runModelOnFrame(
+      bytesList: planes,
+      imageHeight: input.height,
+      imageWidth: input.width,
       numResults: 1,
     );
   }
 
-  Future loadModel(name) async {
-    if (loadedModel == name) return;
+  Future<bool> loadModel(name) async {
+    if (loadedModel == name) return true;
     try {
       String res;
-      res = await Tflite.loadModel(model: "assets/" + name + ".tflite");
+      res = await Tflite.loadModel(
+        model:  "assets/" + name + ".tflite",
+        labels: "assets/" + name + ".txt",
+      );
       loadedModel = name;
-      debugPrint(res);
+      debugPrint('loadModel: ' + res);
+      return true;
     } on PlatformException {
       debugPrint('Failed to load model.');
+      return false;
     }
   }
 }
@@ -162,28 +177,93 @@ class PhotoducerCanvas extends StatefulWidget {
   }
 }
 
-class _PhotoducerCanvasState extends State<PhotoducerCanvas> {
-  ui.Image backgroundImage;
-  List<Offset> points = <Offset>[];
+enum Input { reset, nop, color, strokeCap, strokeWidth, lines }
 
-  void clear() {
-    setState(() {
-      points = <Offset>[];
-      backgroundImage = null;
-    });
+class PhotographTransducer {
+  List<MapEntry<Input, Object>> input = <MapEntry<Input, Object>>[];
+  int version = 1;
+
+  void reset(ui.Image image) {
+    version = 1;
+    input = <MapEntry<Input, Object>>[];
+    if (image != null) input.add(MapEntry<Input, Object>(Input.reset, image));
   }
 
-  void setBackgroundImage(ui.Image image) {
-    setState(() {
-      points = <Offset>[];
-      backgroundImage = image;
-    });
+  void addOrUpdateLastInput(Input type) {
+    if (input.length == 0 || input.last.key != type) {
+      switch (type) {
+        case Input.nop:
+          input.add(MapEntry<Input, Object>(type, null));
+          break;
+
+        case Input.lines:
+          input.add(MapEntry<Input, Object>(type, List<Offset>()));
+          break;
+
+        default:
+          assert(false, "addOrUpdateLastInput(" + type.toString() + "): unsupported");
+      }
+      version++;
+    }
+  }
+
+  void addLines(Offset point) {
+    addOrUpdateLastInput(Input.lines);
+    List<Offset> points = input.last.value;
+    points.add(point);
+    version++;
+  }
+
+  int transduce(Canvas canvas, Size size) {
+    Paint paint = Paint()
+      ..color = Colors.black
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 1.0;
+
+    for (MapEntry<Input, Object> x in input) {
+      switch (x.key) {
+        case Input.reset:
+          canvas.drawImage(x.value, Offset(0, 0), paint);
+          break;
+
+        case Input.color:
+          paint.color = x.value;
+          break;
+
+        case Input.strokeCap:
+          paint.strokeCap = x.value;
+          break;
+
+        case Input.strokeWidth:
+          paint.strokeWidth = x.value;
+          break;
+
+        case Input.lines:
+          List<Offset> points = x.value;
+          for (int i = 0; i < points.length - 1; i++) {
+            canvas.drawLine(points[i], points[i + 1], paint);
+          }
+          break;
+
+        default:
+          break;
+      }
+    }
+    return version;
+  }
+}
+
+class _PhotoducerCanvasState extends State<PhotoducerCanvas> {
+  PhotographTransducer transducer = new PhotographTransducer();
+
+  void reset([ui.Image image]) {
+    setState(() { transducer.reset(image); });
   }
 
   Future<ui.Image> get rendered async {
     ui.PictureRecorder recorder = ui.PictureRecorder();
     Canvas canvas = Canvas(recorder);
-    PhotoducerCanvasPainter painter = PhotoducerCanvasPainter(backgroundImage, points);
+    PhotoducerCanvasPainter painter = PhotoducerCanvasPainter(transducer);
     var size = context.size;
     painter.paint(canvas, size);
     return recorder.endRecording().toImage(size.width.floor(), size.height.floor());
@@ -197,17 +277,18 @@ class _PhotoducerCanvasState extends State<PhotoducerCanvas> {
 
       child: GestureDetector(
         onPanUpdate: (DragUpdateDetails details) {
-          setState(() {
-            RenderBox box = context.findRenderObject();
-            Offset point = box.globalToLocal(details.globalPosition);
-            if (point.dx >=0 && point.dy >= 0 && point.dx < box.size.width && point.dy < box.size.height)
-              points = List.from(points)..add(point);
-          });
+          RenderBox box = context.findRenderObject();
+          Offset point = box.globalToLocal(details.globalPosition);
+          if (point.dx >=0 && point.dy >= 0 && point.dx < box.size.width && point.dy < box.size.height) {
+            setState(() {
+              transducer.addLines(point);
+            });
+          }
         },
 
         onPanEnd: (DragEndDetails details) {
           setState(() {
-            points.add(null);
+            transducer.addOrUpdateLastInput(Input.nop);
           });
         },
 
@@ -215,7 +296,7 @@ class _PhotoducerCanvasState extends State<PhotoducerCanvas> {
           alignment: Alignment.topLeft,
           color: Colors.white,
           child: CustomPaint(
-            painter: PhotoducerCanvasPainter(backgroundImage, points),
+            painter: PhotoducerCanvasPainter(transducer),
           ),
         ),
       ),
@@ -224,30 +305,18 @@ class _PhotoducerCanvasState extends State<PhotoducerCanvas> {
 }
 
 class PhotoducerCanvasPainter extends CustomPainter {
-  ui.Image backgroundImage;
-  List<Offset> points;
+  PhotographTransducer transducer;
+  int transducerVersion = 0;
 
-  PhotoducerCanvasPainter(this.backgroundImage, this.points);
+  PhotoducerCanvasPainter(this.transducer);
 
   @override
   bool shouldRepaint(PhotoducerCanvasPainter oldDelegate) {
-    return oldDelegate.points != points;
+    return transducerVersion != oldDelegate.transducerVersion;
   }
 
   void paint(Canvas canvas, Size size) {
-    Paint paint = Paint()
-      ..color = Colors.black
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 1.0;
-
-    if (backgroundImage != null) {
-      canvas.drawImage(backgroundImage, Offset(0, 0), paint);
-    }
-
-    for (int i = 0; i < points.length - 1; i++) {
-      if (points[i] != null && points[i + 1] != null) {
-        canvas.drawLine(points[i], points[i + 1], paint);
-      }
-    }
+    transducerVersion = transducer.transduce(canvas, size);
   }
 }
+
