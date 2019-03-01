@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker_saver/image_picker_saver.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:tflite/tflite.dart';
@@ -34,6 +35,7 @@ class _PhotoducerState extends State<Photoducer> {
   GlobalKey<_PhotoducerCanvasState> canvasKey = GlobalKey();
   var renderedImage;
   String loadedModel;
+  List objectRecognition;
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +49,14 @@ class _PhotoducerState extends State<Photoducer> {
         child: Column(
           children: <Widget>[
             Spacer(),
-            PhotoducerCanvas(canvasKey),
+            Stack(children: <Widget>[
+              PhotoducerCanvas(canvasKey),
+              Container(
+                width: 256,
+                height: 256,
+                child: Stack(children: objectBoxes(Size(256, 256))),
+              ),
+            ]),
             Spacer(),
         
             Container(
@@ -89,6 +98,17 @@ class _PhotoducerState extends State<Photoducer> {
                       generateImage(context);
                     },
                   ),
+
+                  FlatButton(
+                    child: Icon(Icons.art_track),
+                    onPressed: () {
+                      setState(() {
+                         renderedImage = canvasKey.currentState.rendered;
+                      });
+                      recognizeImage(context);
+                    },
+                  ),
+
                 ],
               ),
             ),
@@ -97,7 +117,36 @@ class _PhotoducerState extends State<Photoducer> {
       ),
     );
   }
-  
+
+  Future<ui.Image> imageFromImg(img.Image input) async {
+    ui.Codec codec = await ui.instantiateImageCodec(img.encodePng(input));
+    ui.FrameInfo frame = await codec.getNextFrame();
+    return frame.image;
+  }
+
+  Future<img.Image> imgFromImage(ui.Image input) async {
+    var pngBytes = await input.toByteData(format: ui.ImageByteFormat.png);
+    return img.decodeImage(pngBytes.buffer.asUint8List());
+  }
+
+  Future<Null> loadImg(img.Image input) async {
+    img.Image resized = img.copyResize(input, 256, 256);
+    ui.Image image = await imageFromImg(resized);
+    canvasKey.currentState.reset(image);
+  }
+
+  Future<String> stashImagePath(String name) async {
+    Directory directory = await getApplicationDocumentsDirectory();
+    return directory.path + Platform.pathSeparator + name + ".png";
+  }
+
+  Future<String> stashImage(ui.Image image, String name) async {
+    var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    String path = await stashImagePath(name);
+    File(path).writeAsBytesSync(pngBytes.buffer.asInt8List());
+    return path;
+  }
+
   Future<String> saveImage(BuildContext context) async {
     var image = await renderedImage;
     var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
@@ -105,18 +154,19 @@ class _PhotoducerState extends State<Photoducer> {
   }
 
   Future<Null> loadImage(BuildContext context) async {
+    //return loadAssetImage(context, 'dogandhorse.jpg');
     String filePath = await FilePicker.getFilePath(type: FileType.ANY);
-    ui.Codec codec = await ui.instantiateImageCodec(File(filePath).readAsBytesSync());
-    ui.FrameInfo frame = await codec.getNextFrame();
-    canvasKey.currentState.reset(frame.image);
+    return loadImg(img.decodeImage(File(filePath).readAsBytesSync()));
   }
 
-  Future<Null> stashImage(BuildContext context, String name) async {
+  Future<Null> loadAssetImage(BuildContext context, String name) async {
+    ByteData bytes = await rootBundle.load("assets/" + name);
+    return loadImg(img.decodeImage(bytes.buffer.asUint8List()));
+  }
+  
+  Future<String> stashRenderedImage(BuildContext context, String name) async {
     var image = await renderedImage;
-    var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    Directory directory = await getApplicationDocumentsDirectory();
-    String path = directory.path;
-    File('$path/$name.png').writeAsBytesSync(pngBytes.buffer.asInt8List());
+    return stashImage(image, name);
   }
 
   Future<Null> unstashImage(BuildContext context, String name) async {
@@ -130,6 +180,7 @@ class _PhotoducerState extends State<Photoducer> {
   Future<Null> generateImage(BuildContext context) async {
     var loaded = await loadModel("edges2shoes");
     if (!loaded) return;
+
     var input = await renderedImage;
     var rgbaBytes = await input.toByteData(format: ui.ImageByteFormat.rawRgba);
     List<Uint8List> planes = [
@@ -150,6 +201,38 @@ class _PhotoducerState extends State<Photoducer> {
     );
   }
 
+  Future<Null> recognizeImage(BuildContext context) async {
+    var loaded = await loadModel("yolov2_tiny");
+    if (!loaded) return;
+
+    var input = await renderedImage;
+    String filePath = await stashImage(input, "recognize");
+    var recognitions = await Tflite.detectObjectOnImage(
+      path: filePath,
+      model: "YOLO",
+      threshold: 0.3,
+      imageMean: 0.0,
+      imageStd: 255.0,
+      numResultsPerClass: 1,
+    );
+
+    /*
+    var input = await renderedImage;
+    img.Image oriImage = await imgFromImage(input);
+    img.Image resizedImage = img.copyResize(oriImage, 416, 416);
+    var recognitions = await Tflite.detectObjectOnBinary(
+      binary: imageToByteListFloat32(resizedImage, 416, 0.0, 255.0),
+      model: "YOLO",
+      threshold: 0.3,
+      numResultsPerClass: 1,
+    );
+    */
+
+    setState(() {
+      objectRecognition = recognitions;
+    });
+  }
+
   Future<bool> loadModel(name) async {
     if (loadedModel == name) return true;
     try {
@@ -165,6 +248,50 @@ class _PhotoducerState extends State<Photoducer> {
       debugPrint('Failed to load model.');
       return false;
     }
+  }
+
+  Uint8List imageToByteListFloat32(img.Image image, int inputSize, double mean, double std) {
+    var convertedBytes = Float32List(1 * inputSize * inputSize * 3);
+    var buffer = Float32List.view(convertedBytes.buffer);
+    int pixelIndex = 0;
+    for (var i = 0; i < inputSize; i++) {
+      for (var j = 0; j < inputSize; j++) {
+        var pixel = image.getPixel(j, i);
+        buffer[pixelIndex++] = (img.getRed  (pixel) - mean) / std;
+        buffer[pixelIndex++] = (img.getGreen(pixel) - mean) / std;
+        buffer[pixelIndex++] = (img.getBlue (pixel) - mean) / std;
+      }
+    }
+    return convertedBytes.buffer.asUint8List();
+  }
+
+  List<Widget> objectBoxes(Size size) {
+    if (objectRecognition == null) return [];
+    Color blue = Color.fromRGBO(37, 213, 253, 1.0);
+    return objectRecognition.map((re) {
+      return Positioned(
+        left:   re["rect"]["x"] * size.width,
+        top:    re["rect"]["y"] * size.height,
+        width:  re["rect"]["w"] * size.width,
+        height: re["rect"]["h"] * size.height,
+        child:  Container(
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: blue,
+              width: 2,
+            ),
+          ),
+          child: Text(
+            "${re["detectedClass"]} ${(re["confidenceInClass"] * 100).toStringAsFixed(0)}%",
+            style: TextStyle(
+              background: Paint()..color = blue,
+              color: Colors.white,
+              fontSize: 12.0,
+            ),
+          ),
+        ),
+      );
+    }).toList();
   }
 }
 
