@@ -1,10 +1,9 @@
-# photoducer
+# Photoducer
+<img style="float:left" src="android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png" />
 
-A new Flutter project.
+Photograph Transducer is an image manipulation utility with a formal edit history editable as code.
 
 ## Getting Started
-
-This project is a starting point for a Flutter application.
 
 A few resources to get you started if this is your first Flutter project:
 
