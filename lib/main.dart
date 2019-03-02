@@ -182,23 +182,23 @@ class _PhotoducerState extends State<Photoducer> {
     if (!loaded) return;
 
     var input = await renderedImage;
-    var rgbaBytes = await input.toByteData(format: ui.ImageByteFormat.rawRgba);
-    List<Uint8List> planes = [
-      new Uint8List(input.width * input.height),
-      new Uint8List(input.width * input.height),
-      new Uint8List(input.width * input.height),
-      new Uint8List(input.width * input.height),
-    ];
-    rgbaBytes.buffer.asUint8List().asMap().forEach((i, v) => { planes[i%4][i~/4] = v });
-    planes.removeAt(0);
-
     debugPrint("Running model on frame");
-    var recognitions = await Tflite.runModelOnFrame(
-      bytesList: planes,
-      imageHeight: input.height,
-      imageWidth: input.width,
+
+    String filePath = await stashImage(input, "recognize");
+    var recognitions = await Tflite.runModelOnImage(
+      path: filePath,
+      imageMean: 0.0,
+      imageStd: 255.0,
       numResults: 1,
     );
+
+    /*
+    img.Image resizedImage = await imgFromImage(input);
+    var recognitions = await Tflite.runModelOnBinary(
+      binary: imgToFloat32List(resizedImage, 256, 0.0, 255.0).buffer.asUint8List(),
+      numResults: 1,
+    );
+    */
   }
 
   Future<Null> recognizeImage(BuildContext context) async {
@@ -221,7 +221,7 @@ class _PhotoducerState extends State<Photoducer> {
     img.Image oriImage = await imgFromImage(input);
     img.Image resizedImage = img.copyResize(oriImage, 416, 416);
     var recognitions = await Tflite.detectObjectOnBinary(
-      binary: imageToByteListFloat32(resizedImage, 416, 0.0, 255.0),
+      binary: imgToFloat32List(resizedImage, 416, 0.0, 255.0).buffer.asUint8List(),
       model: "YOLO",
       threshold: 0.3,
       numResultsPerClass: 1,
@@ -250,7 +250,7 @@ class _PhotoducerState extends State<Photoducer> {
     }
   }
 
-  Uint8List imageToByteListFloat32(img.Image image, int inputSize, double mean, double std) {
+  Float32List imgToFloat32List(img.Image image, int inputSize, double mean, double std) {
     var convertedBytes = Float32List(1 * inputSize * inputSize * 3);
     var buffer = Float32List.view(convertedBytes.buffer);
     int pixelIndex = 0;
@@ -262,7 +262,8 @@ class _PhotoducerState extends State<Photoducer> {
         buffer[pixelIndex++] = (img.getBlue (pixel) - mean) / std;
       }
     }
-    return convertedBytes.buffer.asUint8List();
+    return convertedBytes;
+    
   }
 
   List<Widget> objectBoxes(Size size) {
@@ -292,15 +293,6 @@ class _PhotoducerState extends State<Photoducer> {
         ),
       );
     }).toList();
-  }
-}
-
-class PhotoducerCanvas extends StatefulWidget {
-  PhotoducerCanvas(Key key): super(key: key);
-
-  @override
-  State<StatefulWidget> createState() {
-    return _PhotoducerCanvasState();
   }
 }
 
@@ -377,6 +369,15 @@ class PhotographTransducer {
       }
     }
     return version;
+  }
+}
+
+class PhotoducerCanvas extends StatefulWidget {
+  PhotoducerCanvas(Key key): super(key: key);
+
+  @override
+  State<StatefulWidget> createState() {
+    return _PhotoducerCanvasState();
   }
 }
 
