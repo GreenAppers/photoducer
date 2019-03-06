@@ -1,27 +1,30 @@
+import 'dart:math';
 import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+
 import 'package:scoped_model/scoped_model.dart';
+
 import 'package:photoducer/pixel_buffer.dart';
 
 enum Input { reset, nop, color, strokeCap, strokeWidth, lines }
 
 class PhotographTransducer extends Model {
-  int version;
   PixelBuffer state;
+  VoidCallback updateState;
   List<MapEntry<Input, Object>> input;
-  List<MapEntry<int, ui.Image>> cache;
 
   PhotographTransducer() {
+    updateState = updateStatePaintDelta;
     reset();
   }
 
+  int get version { return input.length; }
+
   void reset([ui.Image image]) {
-    version = 0;
     input = <MapEntry<Input, Object>>[];
-    cache = <MapEntry<int, ui.Image>>[];
     if (image != null) {
       input.add(MapEntry<Input, Object>(Input.reset, image));
-      version++;
       state = PixelBuffer.fromImage(image, version);
       notifyListeners();
     } else {
@@ -32,22 +35,22 @@ class PhotographTransducer extends Model {
 
   void addNop() {
     input.add(MapEntry<Input, Object>(Input.nop, null));
-    version++;
   }
 
   void addLines(Offset point) {
     input.add(MapEntry<Input, Object>(Input.lines, point));
-    version++;
     updateState();
   }
 
-  int transduce(Canvas canvas, Size size) {
+  int transduce(Canvas canvas, Size size, {int startVersion=0, int endVersion=-1}) {
     Paint penState = Paint();
     penState.color = Colors.black;
     penState.strokeCap = StrokeCap.round;
     penState.strokeWidth = 1.0;
 
-    for (int i = 0; i < input.length; i++) {
+    int i = startVersion;
+    endVersion = endVersion < 0 ? version : min(endVersion, version);
+    for (/**/; i < endVersion; i++) {
       var x = input[i];
 
       switch (input[i].key) {
@@ -68,7 +71,7 @@ class PhotographTransducer extends Model {
           break;
       
         case Input.lines:
-          for (/**/; i < input.length-1 && input[i+1].key == Input.lines; i++) {
+          for (/**/; i < endVersion-1 && input[i+1].key == Input.lines; i++) {
             Offset p1 = input[i].value, p2 = input[i+1].value;
             canvas.drawLine(p1, p2, penState);
           }
@@ -78,10 +81,15 @@ class PhotographTransducer extends Model {
           break;
       }
     }
-    return version;
+    return endVersion;
+  }
+ 
+  void updatedState(ImageInfo image, bool synchronousCall) {
+    notifyListeners();
+    if (state.paintedUserVersion != version) updateState();
   }
 
-  void updateState() {
+  void updateStateRepaint() {
     if (state.paintingUserVersion != 0) return;
     state.paintUploaded(
       userVersion: version,
@@ -89,9 +97,16 @@ class PhotographTransducer extends Model {
     );
   }
 
-  void updatedState(ImageInfo image, bool synchronousCall) {
-    notifyListeners();
-    if (state.paintedUserVersion != version) updateState();
+  void updateStatePaintDelta() {
+    if (state.paintingUserVersion != 0) return;
+    state.paintUploaded(
+      userVersion: version,
+      painter: PhotographTransducerPainter(
+        this,
+        startVersion: max(0, state.paintedUserVersion-1)
+      ),
+      startingImage: state.uploaded,
+    );
   }
 
   Future<ui.Image> renderImage() async {
@@ -101,9 +116,9 @@ class PhotographTransducer extends Model {
 
 class PhotographTransducerPainter extends CustomPainter {
   PhotographTransducer transducer;
-  int paintedVersion = 0;
+  int startVersion;
 
-  PhotographTransducerPainter(this.transducer);
+  PhotographTransducerPainter(this.transducer, {this.startVersion=0});
 
   @override
   bool shouldRepaint(PhotographTransducerPainter oldDelegate) {
@@ -111,6 +126,6 @@ class PhotographTransducerPainter extends CustomPainter {
   }
 
   void paint(Canvas canvas, Size size) {
-    paintedVersion = transducer.transduce(canvas, size);
+    transducer.transduce(canvas, size, startVersion: startVersion);
   }
 }

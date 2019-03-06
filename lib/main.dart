@@ -2,17 +2,38 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_crashlytics/flutter_crashlytics.dart';
 import 'package:image_picker_saver/image_picker_saver.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:scoped_model/scoped_model.dart';
 import 'package:tflite/tflite.dart';
+
 import 'package:photoducer/pixel_buffer.dart';
 import 'package:photoducer/photograph_transducer.dart';
 
-void main() => runApp(PhotoducerApp());
+void main() async {
+  bool inDebugMode = false;
+  assert(inDebugMode = true);
+  debugPrint('Photoducer main() inDebugMode=' + inDebugMode.toString());
+
+  FlutterError.onError = (FlutterErrorDetails details) {
+    if (inDebugMode) FlutterError.dumpErrorToConsole(details);
+    else Zone.current.handleUncaughtError(details.exception, details.stack);
+  };
+
+  await FlutterCrashlytics().initialize();
+
+  runZoned<Future<void>>(() async {
+    runApp(PhotoducerApp());
+  }, onError: (error, stackTrace) async {
+    await FlutterCrashlytics().reportCrash(error, stackTrace, forceCrash: false);
+  });
+}
 
 class PhotoducerApp extends StatelessWidget {
   @override
@@ -73,42 +94,8 @@ class _PhotoducerState extends State<Photoducer> {
                   ),
                 ),
               ),
-          
-              Container(
-                height: 100,
-                decoration: BoxDecoration(color: Colors.blueGrey[100]),
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: <Widget>[
-                    FlatButton(
-                      child: Icon(Icons.save),
-                      onPressed: () { saveImage(context); },
-                    ),
-          
-                    FlatButton(
-                      child: Icon(Icons.open_in_browser),
-                      onPressed: () { loadImage(context); },
-                    ),
-          
-                    FlatButton(
-                      child: Icon(Icons.refresh),
-                      onPressed: () {
-                        setState((){ canvasKey.currentState.reset(); });
-                      },
-                    ),
-          
-                    FlatButton(
-                      child: Icon(Icons.toys),
-                      onPressed: () { generateImage(context); },
-                    ),
-          
-                    FlatButton(
-                      child: Icon(Icons.art_track),
-                      onPressed: () { recognizeImage(context); },
-                    ),
-                  ],
-                ),
-              ),
+
+              buildToolbar(context), 
             ],
           ),
         ),
@@ -116,12 +103,64 @@ class _PhotoducerState extends State<Photoducer> {
     );
   }
 
-  Future<Null> loadImageFileNamed(String filename) async {
+  Widget buildToolbar(BuildContext context) {
+    return Container(
+      height: 100,
+      decoration: BoxDecoration(color: Colors.blueGrey[100]),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: <Widget>[
+          FlatButton(
+            child: Icon(Icons.save),
+            onPressed: () { saveImage(context); },
+          ),
+    
+          FlatButton(
+            child: Icon(Icons.open_in_browser),
+            onPressed: () { loadImage(context); },
+          ),
+    
+          FlatButton(
+            child: Icon(Icons.refresh),
+            onPressed: () {
+              setState((){ canvasKey.currentState.reset(); });
+            },
+          ),
+    
+          FlatButton(
+            child: Icon(Icons.toys),
+            onPressed: () { generateImage(context); },
+          ),
+    
+          FlatButton(
+            child: Icon(Icons.art_track),
+            onPressed: () { recognizeImage(context); },
+          ),
+
+          PopupMenuButton(
+            icon: Icon(Icons.settings),
+            itemBuilder: (_) => <PopupMenuItem<String>>[
+              PopupMenuItem<String>(child: const Text('repaint'),    value: 'repaint'),
+              PopupMenuItem<String>(child: const Text('paintDelta'), value: 'paintDelta'),
+            ],
+            onSelected: (String v) {
+              if (v == 'repaint')    widget.transducer.updateState = widget.transducer.updateStateRepaint;
+              if (v == 'paintDelta') widget.transducer.updateState = widget.transducer.updateStatePaintDelta;
+            }
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> voidResult() async {}
+
+  Future<void> loadImageFileNamed(String filename) async {
     List<int> bytes = await File(filename).readAsBytes();
     return loadImageFileBytes(bytes);
   }
 
-  Future<Null> loadImageFileBytes(List<int> bytes) async {
+  Future<void> loadImageFileBytes(List<int> bytes) async {
     ui.Codec codec = await ui.instantiateImageCodec(bytes);
     ui.FrameInfo frame = await codec.getNextFrame();
     setState((){
@@ -136,15 +175,15 @@ class _PhotoducerState extends State<Photoducer> {
     return ImagePickerSaver.saveFile(fileData: pngBytes.buffer.asUint8List());
   }
 
-  Future<Null> loadImage(BuildContext context) async {
+  Future<void> loadImage(BuildContext context) async {
     //return loadAssetImage(context, 'dogandhorse.jpg');
     String filePath = await FilePicker.getFilePath(type: FileType.ANY);
-    if (filePath == '') return;
+    if (filePath == '') return voidResult();
     setState((){ loadingImage = true; });
     return loadImageFileNamed(filePath);
   }
 
-  Future<Null> loadAssetImage(BuildContext context, String name) async {
+  Future<void> loadAssetImage(BuildContext context, String name) async {
     setState((){ loadingImage = true; });
     ByteData bytes = await rootBundle.load("assets/" + name);
     return loadImageFileBytes(bytes.buffer.asUint8List());
@@ -155,12 +194,12 @@ class _PhotoducerState extends State<Photoducer> {
     return stashImage(image, name);
   }
 
-  Future<Null> unstashImage(BuildContext context, String name) async {
+  Future<void> unstashImage(BuildContext context, String name) async {
     String filePath = await stashImagePath(name);
     return loadImageFileNamed(filePath);
   }
 
-  Future<Null> generateImage(BuildContext context) async {
+  Future<void> generateImage(BuildContext context) async {
     var loaded = await loadModel("edges2shoes");
     if (!loaded) return;
 
@@ -184,7 +223,7 @@ class _PhotoducerState extends State<Photoducer> {
     */
   }
 
-  Future<Null> recognizeImage(BuildContext context) async {
+  Future<void> recognizeImage(BuildContext context) async {
     var loaded = await loadModel("yolov2_tiny");
     if (!loaded) return;
 
