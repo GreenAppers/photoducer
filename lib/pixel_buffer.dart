@@ -12,37 +12,91 @@ typedef ImgCallback = void Function(img.Image);
 typedef ImageCallback = void Function(ui.Image);
 
 class PixelBuffer extends ImageStreamCompleter {
-  img.Image data;
+  Size size;
   ui.Image uploaded;
-  int dataVersion = 0, uploadedVersion = 0, uploadingVersion = 0;
+  img.Image downloaded;
+  bool autoUpload = true, autoDownload = false;
+  int uploadedVersion = 0, uploadingVersion = 0;
+  int downloadedVersion = 0, downloadingVersion = 0;
+  int paintedUserVersion = 0, paintingUserVersion = 0;
 
-  PixelBuffer(this.data);
-
-  void upload(ImageCallback cb) {
-    uploadingVersion = dataVersion;
-    imageFromImg(data).then(cb);
+  PixelBuffer(this.size) {
+    paintUploaded();
   }
 
-  void setState(ImgCallback cb) {
-    cb(data);
-    dataVersion++;
-    if (uploadingVersion == 0) {
-      upload(setStateComplete);
+  PixelBuffer.fromImage(this.uploaded, [this.paintedUserVersion=1]) :
+    size = Size(uploaded.width.toDouble(), uploaded.height.toDouble()) {
+    setUploadedState((ui.Image x) {});
+  }
+
+  PixelBuffer.fromImg(this.downloaded) :
+    size = Size(downloaded.width.toDouble(), downloaded.height.toDouble()) {
+    setDownloadedState((img.Image x) {});
+  }
+
+  void paintUploaded({CustomPainter painter, ui.Image startingImage, int userVersion=1}) {
+    paintingUserVersion = userVersion;
+    ui.PictureRecorder recorder = ui.PictureRecorder();
+    Canvas canvas = Canvas(recorder);
+    if (startingImage != null) canvas.drawImage(startingImage, Offset(0, 0), Paint());
+    if (painter != null) painter.paint(canvas, size);
+    recorder.endRecording().toImage(size.width.floor(), size.height.floor()).then(paintUploadedComplete);
+  }
+
+  void paintUploadedComplete(ui.Image nextFrame) {
+    paintedUserVersion = paintingUserVersion;
+    paintingUserVersion = 0;
+    setUploadedState((ui.Image x) { uploaded = nextFrame; });
+  }
+
+  void setUploadedState(ImageCallback cb) {
+    cb(uploaded);
+    uploadedVersion++;
+    broadcastUploaded();
+    if (autoDownload && downloadingVersion == 0) {
+      downloadUploaded(downloadUploadedComplete);
     }
   }
 
-  void setStateComplete(ui.Image nextFrame) {
+  void setDownloadedState(ImgCallback cb) {
+    cb(downloaded);
+    downloadedVersion++;
+    if (autoUpload && uploadingVersion == 0) {
+      uploadDownloaded(uploadDownloadedComplete);
+    }
+  }
+
+  void downloadUploadedComplete(img.Image nextFrame) {
+    downloaded = nextFrame;
+    downloadedVersion = downloadingVersion;
+    downloadingVersion = 0;
+    if (autoDownload && uploadedVersion > downloadedVersion) {
+      downloadUploaded(downloadUploadedComplete);
+    }
+  }
+
+  void uploadDownloadedComplete(ui.Image nextFrame) {
     uploaded = nextFrame;
     uploadedVersion = uploadingVersion;
     uploadingVersion = 0;
-    setUploadedImage();
-    if (dataVersion != uploadedVersion) {
-      upload(setStateComplete);
+    broadcastUploaded();
+    if (downloadedVersion != uploadedVersion) {
+      uploadDownloaded(uploadDownloadedComplete);
     }
   }
 
-  void setUploadedImage() {
+  void broadcastUploaded() {
     setImage(ImageInfo(image: uploaded));
+  }
+
+  void downloadUploaded(ImgCallback cb) {
+    downloadingVersion = uploadedVersion;
+    imgFromImage(uploaded).then(cb);
+  }
+
+  void uploadDownloaded(ImageCallback cb) {
+    uploadingVersion = downloadedVersion;
+    imageFromImg(downloaded).then(cb);
   }
 }
 
@@ -57,26 +111,24 @@ class PixelBufferImageProvider extends ImageProvider<PixelBufferImageProvider> {
 
   @override
   ImageStreamCompleter load(PixelBufferImageProvider key) {
-    if (key.pixelBuffer.uploaded != null) key.pixelBuffer.setUploadedImage();
+    if (key.pixelBuffer.uploaded != null) key.pixelBuffer.broadcastUploaded();
     return key.pixelBuffer;
   }
 }
 
 class PixelBufferPainter extends CustomPainter {
-  PixelBuffer pixelBuffer;
-  int paintedVersion = 0;
+  ui.Image pixelBuffer;
 
-  PixelBufferPainter(this.pixelBuffer);
+  PixelBufferPainter(PixelBuffer pb) : pixelBuffer = pb.uploaded;
 
   @override
   bool shouldRepaint(PixelBufferPainter oldDelegate) {
-    return paintedVersion != pixelBuffer.uploadedVersion;
+    return pixelBuffer != oldDelegate.pixelBuffer;
   }
 
   void paint(Canvas canvas, Size size) {
-    if (pixelBuffer.uploaded == null) return;
-    paintedVersion = pixelBuffer.uploadedVersion;
-    canvas.drawImage(pixelBuffer.uploaded, Offset(0, 0), Paint());
+    if (pixelBuffer == null) return;
+    canvas.drawImage(pixelBuffer, Offset(0, 0), Paint());
   }
 }
 

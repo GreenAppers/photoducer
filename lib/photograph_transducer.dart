@@ -1,32 +1,33 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:scoped_model/scoped_model.dart';
 import 'package:photoducer/pixel_buffer.dart';
 
 enum Input { reset, nop, color, strokeCap, strokeWidth, lines }
 
-class PhotographTransducerState {
-  Size size = Size(256, 256);
-  bool uploaded = true;
-  PixelBuffer downloaded;
-}
+class PhotographTransducer extends Model {
+  int version;
+  PixelBuffer state;
+  List<MapEntry<Input, Object>> input;
+  List<MapEntry<int, ui.Image>> cache;
 
-class PhotographTransducer {
-  int version = 0;
-  PhotographTransducerState state = PhotographTransducerState();
-  List<MapEntry<Input, Object>> input = <MapEntry<Input, Object>>[];
-  List<MapEntry<int, ui.Image>> cache = <MapEntry<int, ui.Image>>[];
+  PhotographTransducer() {
+    reset();
+  }
 
-  void reset(ui.Image image) {
+  void reset([ui.Image image]) {
     version = 0;
     input = <MapEntry<Input, Object>>[];
     cache = <MapEntry<int, ui.Image>>[];
     if (image != null) {
-      state.size = Size(image.width.toDouble(), image.height.toDouble());
       input.add(MapEntry<Input, Object>(Input.reset, image));
       version++;
+      state = PixelBuffer.fromImage(image, version);
+      notifyListeners();
     } else {
-      state.size = Size(256, 256);
+      state = PixelBuffer(Size(256, 256));
     }
+    state.addListener(updatedState);
   }
 
   void addNop() {
@@ -37,6 +38,7 @@ class PhotographTransducer {
   void addLines(Offset point) {
     input.add(MapEntry<Input, Object>(Input.lines, point));
     version++;
+    updateState();
   }
 
   int transduce(Canvas canvas, Size size) {
@@ -79,30 +81,36 @@ class PhotographTransducer {
     return version;
   }
 
+  void updateState() {
+    if (state.paintingUserVersion != 0) return;
+    state.paintUploaded(
+      userVersion: version,
+      painter: PhotographTransducerPainter(this),
+    );
+  }
+
+  void updatedState(ImageInfo image, bool synchronousCall) {
+    notifyListeners();
+    if (state.paintedUserVersion != version) updateState();
+  }
+
   Future<ui.Image> renderImage() async {
-    ui.PictureRecorder recorder = ui.PictureRecorder();
-    Canvas canvas = Canvas(recorder);
-    transduce(canvas, state.size);
-    return recorder.endRecording().toImage(state.size.width.floor(), state.size.height.floor());
+    return state.uploaded;
   }
 }
 
 class PhotographTransducerPainter extends CustomPainter {
   PhotographTransducer transducer;
-  List transducerInput;
   int paintedVersion = 0;
 
-  PhotographTransducerPainter(this.transducer) {
-    transducerInput = transducer.input;
-  }
+  PhotographTransducerPainter(this.transducer);
 
   @override
   bool shouldRepaint(PhotographTransducerPainter oldDelegate) {
-    return paintedVersion != transducer.version || transducerInput != oldDelegate.transducerInput;
+    return true;
   }
 
   void paint(Canvas canvas, Size size) {
     paintedVersion = transducer.transduce(canvas, size);
   }
 }
-

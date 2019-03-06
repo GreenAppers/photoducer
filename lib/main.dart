@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker_saver/image_picker_saver.dart';
 import 'package:photo_view/photo_view.dart';
+import 'package:scoped_model/scoped_model.dart';
 import 'package:tflite/tflite.dart';
 import 'package:photoducer/pixel_buffer.dart';
 import 'package:photoducer/photograph_transducer.dart';
@@ -92,7 +93,7 @@ class _PhotoducerState extends State<Photoducer> {
                     FlatButton(
                       child: Icon(Icons.refresh),
                       onPressed: () {
-                        canvasKey.currentState.reset();
+                        setState((){ canvasKey.currentState.reset(); });
                       },
                     ),
           
@@ -123,8 +124,10 @@ class _PhotoducerState extends State<Photoducer> {
   Future<Null> loadImageFileBytes(List<int> bytes) async {
     ui.Codec codec = await ui.instantiateImageCodec(bytes);
     ui.FrameInfo frame = await codec.getNextFrame();
-    canvasKey.currentState.reset(frame.image);
-    setState((){ loadingImage = false; });
+    setState((){
+      loadingImage = false;
+      widget.transducer.reset(frame.image);
+    });
   }
 
   Future<String> saveImage(BuildContext context) async {
@@ -267,8 +270,13 @@ class _PhotoducerCanvasState extends State<PhotoducerCanvas> {
             alignment: Alignment.topLeft,
             color: Colors.white,
             child: RepaintBoundary(
-              child: CustomPaint(
-                painter: PhotographTransducerPainter(widget.transducer),
+              child: ScopedModel<PhotographTransducer>(
+                model: widget.transducer,
+                child: ScopedModelDescendant<PhotographTransducer>(
+                  builder: (context, child, cart) => CustomPaint(
+                    painter: PixelBufferPainter(widget.transducer.state)
+                  ),
+                ),
               ),
             ),
           ),
@@ -290,16 +298,14 @@ class _PhotoducerCanvasState extends State<PhotoducerCanvas> {
             RenderBox box = context.findRenderObject();
             Offset point = box.globalToLocal(details.globalPosition);
             if (point.dx >=0 && point.dy >= 0 && point.dx < box.size.width && point.dy < box.size.height) {
-              setState(() {
-                widget.transducer.addLines(point);
-              });
+              widget.transducer.addLines(point);
             }
           },
-          
+
           onPanEnd: (DragEndDetails details) {
             widget.transducer.addNop();
           },
-          
+
           child: child
         );
 
