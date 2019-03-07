@@ -66,6 +66,19 @@ class _PhotoducerState extends State<Photoducer> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Photoducer'),
+        actions: <Widget>[
+          IconButton(
+            icon: new Icon(Icons.undo),
+            tooltip: 'Undo',
+            onPressed: () {}
+          ),
+
+          IconButton(
+            icon: new Icon(Icons.redo),
+            tooltip: 'Redo',
+            onPressed: () {}
+          ),
+        ],
       ),
 
       body: Container( 
@@ -185,6 +198,16 @@ class _PhotoducerState extends State<Photoducer> {
           ),
 
           PopupMenuButton(
+            icon: Icon(Icons.border_clear),
+            itemBuilder: (_) => <PopupMenuItem<String>>[
+              PopupMenuItem<String>(child: const Text('Blur'),        value: 'blur'),
+              PopupMenuItem<String>(child: const Text('Edge detect'), value: 'edgeDetect'),
+            ],
+            onSelected: (String v) {
+            }
+          ),
+
+          PopupMenuButton(
             icon: Icon(Icons.settings),
             itemBuilder: (_) => <PopupMenuItem<String>>[
               PopupMenuItem<String>(child: const Text('repaint'),    value: 'repaint'),
@@ -193,6 +216,16 @@ class _PhotoducerState extends State<Photoducer> {
             onSelected: (String v) {
               if (v == 'repaint')    widget.transducer.updateState = widget.transducer.updateStateRepaint;
               if (v == 'paintDelta') widget.transducer.updateState = widget.transducer.updateStatePaintDelta;
+            }
+          ),
+
+          PopupMenuButton(
+            icon: Icon(Icons.share),
+            itemBuilder: (_) => <PopupMenuItem<String>>[
+              PopupMenuItem<String>(child: const Text('Twitter'),  value: 'twitter'),
+              PopupMenuItem<String>(child: const Text('Facebook'), value: 'facebook'),
+            ],
+            onSelected: (String v) {
             }
           ),
         ],
