@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_crashlytics/flutter_crashlytics.dart';
 import 'package:image_picker_saver/image_picker_saver.dart';
 import 'package:photo_view/photo_view.dart';
@@ -110,31 +111,77 @@ class _PhotoducerState extends State<Photoducer> {
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: <Widget>[
-          FlatButton(
-            child: Icon(Icons.save),
-            onPressed: () { saveImage(context); },
+          PopupMenuButton(
+            icon: Icon(Icons.save),
+            itemBuilder: (_) => <PopupMenuItem<String>>[
+              PopupMenuItem<String>(child: const Text('New'), value: 'new'), // Icons.refresh
+              PopupMenuItem<String>(child: const Text('Save'), value: 'save'), // Icons.save
+              PopupMenuItem<String>(child: const Text('Load'), value: 'load'), // Icons.open_in_browser
+            ],
+            onSelected: (String v) {
+              if (v == 'new') setState((){ canvasKey.currentState.reset(); });
+              if (v == 'save') saveImage(context);
+              if (v == 'load') loadImage(context);
+            }
           ),
     
-          FlatButton(
-            child: Icon(Icons.open_in_browser),
-            onPressed: () { loadImage(context); },
+          PopupMenuButton(
+            icon: Icon(Icons.build),
+            itemBuilder: (_) => <PopupMenuItem<String>>[
+              PopupMenuItem<String>(child: const Text('Hand'), value: 'hand'),
+              PopupMenuItem<String>(child: const Text('Draw'), value: 'draw'), // Icons.brush
+            ],
+            onSelected: (String v) {
+              if (v == 'hand') canvasKey.currentState.setTool(PhotoducerCanvasTool.none);
+              if (v == 'draw') canvasKey.currentState.setTool(PhotoducerCanvasTool.draw);
+            }
           ),
     
-          FlatButton(
-            child: Icon(Icons.refresh),
-            onPressed: () {
-              setState((){ canvasKey.currentState.reset(); });
-            },
+          PopupMenuButton(
+            icon: Icon(Icons.category),
+            itemBuilder: (_) => <PopupMenuItem<String>>[
+              PopupMenuItem<String>(child: const Text('Color'), value: 'color'),
+              PopupMenuItem<String>(child: const Text('Font'), value: 'font'),
+              PopupMenuItem<String>(child: const Text('Brush'), value: 'brush'),
+            ],
+            onSelected: (String v) {
+              if (v == 'color')
+                showDialog(
+                  context: context,
+                  child: AlertDialog(
+                    title: const Text('Pick a color!'),
+                    content: SingleChildScrollView(
+                      child: ColorPicker(
+                        pickerColor: Colors.black,
+                        //onColorChanged: changeColor,
+                        enableLabel: true,
+                        pickerAreaHeightPercent: 0.8,
+                      ),
+                    ),
+                    actions: <Widget>[
+                      FlatButton(
+                        child: const Text('Got it'),
+                        onPressed: () {
+                          // setState(() => currentColor = pickerColor);
+                          Navigator.of(context).pop();
+                        },
+                      ),
+                    ],
+                  ),
+                );
+            }
           ),
     
-          FlatButton(
-            child: Icon(Icons.toys),
-            onPressed: () { generateImage(context); },
-          ),
-    
-          FlatButton(
-            child: Icon(Icons.art_track),
-            onPressed: () { recognizeImage(context); },
+          PopupMenuButton(
+            icon: Icon(Icons.art_track),
+            itemBuilder: (_) => <PopupMenuItem<String>>[
+              PopupMenuItem<String>(child: const Text('Recognize'), value: 'recognize'), // Icons.art_track
+              PopupMenuItem<String>(child: const Text('Generate'),  value: 'generate'), // Icons.toys
+            ],
+            onSelected: (String v) {
+              if (v == 'recognize') recognizeImage(context);
+              if (v == 'generate') generateImage(context);
+            }
           ),
 
           PopupMenuButton(
@@ -292,6 +339,10 @@ class _PhotoducerCanvasState extends State<PhotoducerCanvas> {
       widget.transducer.reset(image);
       objectRecognition = null;
     });
+  }
+
+  void setTool(PhotoducerCanvasTool x) {
+    setState(() { tool = x; });
   }
 
   void setObjectRecognition(List x) {
