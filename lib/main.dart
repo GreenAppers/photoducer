@@ -59,13 +59,13 @@ class Photoducer extends StatefulWidget {
 class _PhotoducerState extends State<Photoducer> {
   GlobalKey<_PhotoducerCanvasState> canvasKey = GlobalKey();
   bool loadingImage = false;
-  String loadedModel;
+  String loadedImage, loadedModel;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Photoducer'),
+        title: Text(loadedImage != null ? loadedImage : 'Photoducer'),
         actions: <Widget>[
           IconButton(
             icon: new Icon(Icons.undo),
@@ -132,7 +132,10 @@ class _PhotoducerState extends State<Photoducer> {
               PopupMenuItem<String>(child: const Text('Load'), value: 'load'), // Icons.open_in_browser
             ],
             onSelected: (String v) {
-              if (v == 'new') setState((){ canvasKey.currentState.reset(); });
+              if (v == 'new') setState((){
+                loadedImage = null;
+                canvasKey.currentState.reset();
+              });
               if (v == 'save') saveImage(context);
               if (v == 'load') loadImage(context);
             }
@@ -259,13 +262,16 @@ class _PhotoducerState extends State<Photoducer> {
     //return loadAssetImage(context, 'dogandhorse.jpg');
     String filePath = await FilePicker.getFilePath(type: FileType.ANY);
     if (filePath == '') return voidResult();
-    setState((){ loadingImage = true; });
+    setState((){
+      loadingImage = true;
+      loadedImage = filePath.split(Platform.pathSeparator).last;
+    });
     return loadImageFileNamed(filePath);
   }
 
   Future<void> loadAssetImage(BuildContext context, String name) async {
     setState((){ loadingImage = true; });
-    ByteData bytes = await rootBundle.load("assets/" + name);
+    ByteData bytes = await rootBundle.load("assets" + Platform.pathSeparator + name);
     return loadImageFileBytes(bytes.buffer.asUint8List());
   }
   
@@ -338,8 +344,8 @@ class _PhotoducerState extends State<Photoducer> {
     try {
       String res;
       res = await Tflite.loadModel(
-        model:  "assets/" + name + ".tflite",
-        labels: "assets/" + name + ".txt",
+        model:  "assets" + Platform.pathSeparator + name + ".tflite",
+        labels: "assets" + Platform.pathSeparator + name + ".txt",
       );
       loadedModel = name;
       debugPrint('loadModel: ' + res);
