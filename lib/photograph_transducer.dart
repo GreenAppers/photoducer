@@ -9,45 +9,70 @@ import 'package:photoducer/pixel_buffer.dart';
 
 enum Input { reset, nop, color, strokeCap, strokeWidth, lines }
 
+class OrthogonalState {
+  Paint paint = Paint();
+
+  OrthogonalState() {
+    paint.color = Colors.black;
+    paint.strokeCap = StrokeCap.round;
+    paint.strokeWidth = 1.0;
+  }
+}
+
 class PhotographTransducer extends Model {
+  int version;
   PixelBuffer state;
-  VoidCallback updateState;
+  VoidCallback updateStateMethod;
+  OrthogonalState orthogonalState;
   List<MapEntry<Input, Object>> input;
 
   PhotographTransducer() {
-    updateState = updateStatePaintDelta;
+    updateStateMethod = updateStatePaintDelta;
     reset();
   }
 
-  int get version { return input.length; }
-
   void reset([ui.Image image]) {
+    version = 0;
     input = <MapEntry<Input, Object>>[];
     if (image != null) {
-      input.add(MapEntry<Input, Object>(Input.reset, image));
+      addInput(MapEntry<Input, Object>(Input.reset, image));
       state = PixelBuffer.fromImage(image, version);
       notifyListeners();
     } else {
       state = PixelBuffer(Size(256, 256));
     }
     state.addListener(updatedState);
+    orthogonalState = OrthogonalState();
+  }
+
+  void addInput(MapEntry<Input, Object> x) {
+    if (version < input.length) input.removeRange(version, input.length);
+    input.add(x);
+    version++;
   }
 
   void addNop() {
-    input.add(MapEntry<Input, Object>(Input.nop, null));
+    addInput(MapEntry<Input, Object>(Input.nop, null));
   }
 
   void addLines(Offset point) {
-    input.add(MapEntry<Input, Object>(Input.lines, point));
+    addInput(MapEntry<Input, Object>(Input.lines, point));
+    updateState();
+  }
+
+  void changeColor(Color color) {
+    addInput(MapEntry<Input, Object>(Input.color, color));
+  }
+
+  void walkVersion(int n) {
+    version += n;
+    version = version.clamp(0, input.length);
     updateState();
   }
 
   int transduce(Canvas canvas, Size size, {int startVersion=0, int endVersion=-1}) {
-    Paint penState = Paint();
-    penState.color = Colors.black;
-    penState.strokeCap = StrokeCap.round;
-    penState.strokeWidth = 1.0;
-
+    if (startVersion == 0) orthogonalState = OrthogonalState();
+    var o = orthogonalState;
     int i = startVersion;
     endVersion = endVersion < 0 ? version : min(endVersion, version);
     for (/**/; i < endVersion; i++) {
@@ -55,25 +80,25 @@ class PhotographTransducer extends Model {
 
       switch (input[i].key) {
         case Input.reset:
-          canvas.drawImage(x.value, Offset(0, 0), penState);
+          canvas.drawImage(x.value, Offset(0, 0), o.paint);
           break;
 
         case Input.color:
-          penState.color = x.value;
+          o.paint.color = x.value;
           break;
       
         case Input.strokeCap:
-          penState.strokeCap = x.value;
+          o.paint.strokeCap = x.value;
           break;
       
         case Input.strokeWidth:
-          penState.strokeWidth = x.value;
+          o.paint.strokeWidth = x.value;
           break;
       
         case Input.lines:
           for (/**/; i < endVersion-1 && input[i+1].key == Input.lines; i++) {
             Offset p1 = input[i].value, p2 = input[i+1].value;
-            canvas.drawLine(p1, p2, penState);
+            canvas.drawLine(p1, p2, o.paint);
           }
           break;
       
@@ -83,17 +108,25 @@ class PhotographTransducer extends Model {
     }
     return endVersion;
   }
+
+  void updateState() {
+    if (version == state.paintedUserVersion) return;
+    if (version < state.paintedUserVersion) return updateStateRepaint();
+    else updateStateMethod();
+  }
  
   void updatedState(ImageInfo image, bool synchronousCall) {
     notifyListeners();
-    if (state.paintedUserVersion != version) updateState();
+    updateState();
   }
 
   void updateStateRepaint() {
     if (state.paintingUserVersion != 0) return;
     state.paintUploaded(
       userVersion: version,
-      painter: PhotographTransducerPainter(this),
+      painter: PhotographTransducerPainter(this,
+        endVersion: version,
+      ),
     );
   }
 
@@ -101,9 +134,9 @@ class PhotographTransducer extends Model {
     if (state.paintingUserVersion != 0) return;
     state.paintUploaded(
       userVersion: version,
-      painter: PhotographTransducerPainter(
-        this,
-        startVersion: max(0, state.paintedUserVersion-1)
+      painter: PhotographTransducerPainter(this,
+        startVersion: max(0, state.paintedUserVersion-1),
+        endVersion: version,
       ),
       startingImage: state.uploaded,
     );
@@ -116,9 +149,11 @@ class PhotographTransducer extends Model {
 
 class PhotographTransducerPainter extends CustomPainter {
   PhotographTransducer transducer;
-  int startVersion;
+  int startVersion, endVersion;
 
-  PhotographTransducerPainter(this.transducer, {this.startVersion=0});
+  PhotographTransducerPainter(
+    this.transducer, {this.startVersion=0, this.endVersion=null}
+  );
 
   @override
   bool shouldRepaint(PhotographTransducerPainter oldDelegate) {
@@ -126,6 +161,9 @@ class PhotographTransducerPainter extends CustomPainter {
   }
 
   void paint(Canvas canvas, Size size) {
-    transducer.transduce(canvas, size, startVersion: startVersion);
+    transducer.transduce(canvas, size,
+      startVersion: startVersion,
+      endVersion: endVersion != null ? endVersion : transducer.input.length,
+    );
   }
 }

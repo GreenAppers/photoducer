@@ -27,7 +27,6 @@ class _PhotoducerState extends State<Photoducer> {
   GlobalKey<_PhotoducerCanvasState> canvasKey = GlobalKey();
   bool loadingImage = false;
   String loadedImage, loadedModel;
-  Color penColor = Colors.black;
 
   @override
   Widget build(BuildContext context) {
@@ -38,13 +37,13 @@ class _PhotoducerState extends State<Photoducer> {
           IconButton(
             icon: new Icon(Icons.undo),
             tooltip: 'Undo',
-            onPressed: () {}
+            onPressed: () { widget.transducer.walkVersion(-1); }
           ),
 
           IconButton(
             icon: new Icon(Icons.redo),
             tooltip: 'Redo',
-            onPressed: () {}
+            onPressed: () { widget.transducer.walkVersion(1); }
           ),
         ],
       ),
@@ -130,7 +129,7 @@ class _PhotoducerState extends State<Photoducer> {
             ],
             onSelected: (String v) {
               if (v == 'color') {
-                Color pickerColor = penColor;
+                Color pickerColor = widget.transducer.orthogonalState.paint.color;
                 showDialog(
                   context: context,
                   builder: (_) => AlertDialog(
@@ -147,7 +146,7 @@ class _PhotoducerState extends State<Photoducer> {
                       FlatButton(
                         child: const Text('Got it'),
                         onPressed: () {
-                          setState(() => penColor = pickerColor);
+                          setState(() => widget.transducer.changeColor(pickerColor));
                           Navigator.of(context).pop();
                         },
                       ),
@@ -187,8 +186,8 @@ class _PhotoducerState extends State<Photoducer> {
               PopupMenuItem<String>(child: const Text('paintDelta'), value: 'paintDelta'),
             ],
             onSelected: (String v) {
-              if (v == 'repaint')    widget.transducer.updateState = widget.transducer.updateStateRepaint;
-              if (v == 'paintDelta') widget.transducer.updateState = widget.transducer.updateStatePaintDelta;
+              if (v == 'repaint')    widget.transducer.updateStateMethod = widget.transducer.updateStateRepaint;
+              if (v == 'paintDelta') widget.transducer.updateStateMethod = widget.transducer.updateStatePaintDelta;
             }
           ),
 
