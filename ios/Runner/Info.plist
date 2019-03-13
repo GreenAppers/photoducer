@@ -41,5 +41,14 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+  <key>UIBackgroundModes</key>
+  <array>
+  <string>fetch</string>
+  <string>remote-notification</string>
+  </array>z
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>Photoducer is a photograph transducer</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Photoducer is a photograph transducer</string>
 </dict>
 </plist>

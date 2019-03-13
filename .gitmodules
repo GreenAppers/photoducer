@@ -1,3 +1,6 @@
 [submodule "flutter_crashlytics"]
 	path = flutter_crashlytics
 	url = https://github.com/GreenAppers/flutter_crashlytics
+[submodule "flutter_tflite"]
+	path = flutter_tflite
+	url = https://github.com/GreenAppers/flutter_tflite

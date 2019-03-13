@@ -70,11 +70,11 @@ class PhotographTransducer extends Model {
     updateState();
   }
 
-  int transduce(Canvas canvas, Size size, {int startVersion=0, int endVersion=-1}) {
+  int transduce(Canvas canvas, Size size, {int startVersion=0, int endVersion}) {
     if (startVersion == 0) orthogonalState = OrthogonalState();
     var o = orthogonalState;
     int i = startVersion;
-    endVersion = endVersion < 0 ? version : min(endVersion, version);
+    endVersion = endVersion == null ? version : min(endVersion, version);
     for (/**/; i < endVersion; i++) {
       var x = input[i];
 
@@ -152,7 +152,7 @@ class PhotographTransducerPainter extends CustomPainter {
   int startVersion, endVersion;
 
   PhotographTransducerPainter(
-    this.transducer, {this.startVersion=0, this.endVersion=null}
+    this.transducer, {this.startVersion=0, this.endVersion}
   );
 
   @override
@@ -163,7 +163,7 @@ class PhotographTransducerPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     transducer.transduce(canvas, size,
       startVersion: startVersion,
-      endVersion: endVersion != null ? endVersion : transducer.input.length,
+      endVersion: endVersion,
     );
   }
 }

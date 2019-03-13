@@ -10,9 +10,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:image_picker_saver/image_picker_saver.dart';
 import 'package:photo_view/photo_view.dart';
-import 'package:scoped_model/scoped_model.dart';
 import 'package:tflite/tflite.dart';
 
+import 'package:photoducer/canvas.dart';
 import 'package:photoducer/pixel_buffer.dart';
 import 'package:photoducer/photograph_transducer.dart';
 
@@ -20,11 +20,11 @@ class Photoducer extends StatefulWidget {
   final PhotographTransducer transducer = PhotographTransducer();
 
   @override
-  _PhotoducerState createState() => _PhotoducerState();
+  PhotoducerState createState() => PhotoducerState();
 }
 
-class _PhotoducerState extends State<Photoducer> {
-  GlobalKey<_PhotoducerCanvasState> canvasKey = GlobalKey();
+class PhotoducerState extends State<Photoducer> {
+  GlobalKey<PhotoducerCanvasState> canvasKey = GlobalKey();
   bool loadingImage = false;
   String loadedImage, loadedModel;
 
@@ -97,14 +97,17 @@ class _PhotoducerState extends State<Photoducer> {
               PopupMenuItem<String>(child: const Text('New'), value: 'new'), // Icons.refresh
               PopupMenuItem<String>(child: const Text('Save'), value: 'save'), // Icons.save
               PopupMenuItem<String>(child: const Text('Load'), value: 'load'), // Icons.open_in_browser
+              PopupMenuItem<String>(child: const Text('Stock'), value: 'stock'),
             ],
             onSelected: (String v) {
               if (v == 'new') setState((){
                 loadedImage = null;
-                canvasKey.currentState.reset();
+                widget.transducer.reset();
+                //canvasKey.currentState.objectRecognition = null;
               });
               if (v == 'save') saveImage(context);
               if (v == 'load') loadImage(context);
+              if (v == 'stock') loadAssetImage(context, 'dogandhorse.jpg');
             }
           ),
     
@@ -218,6 +221,7 @@ class _PhotoducerState extends State<Photoducer> {
     setState((){
       loadingImage = false;
       widget.transducer.reset(frame.image);
+      //canvasKey.currentState.objectRecognition = null;
     });
   }
 
@@ -228,7 +232,6 @@ class _PhotoducerState extends State<Photoducer> {
   }
 
   Future<void> loadImage(BuildContext context) async {
-    //return loadAssetImage(context, 'dogandhorse.jpg');
     String filePath = await FilePicker.getFilePath(type: FileType.ANY);
     if (filePath == '') return voidResult();
     setState((){
@@ -254,7 +257,7 @@ class _PhotoducerState extends State<Photoducer> {
     return loadImageFileNamed(filePath);
   }
 
-  Future<void> generateImage(BuildContext context) async {
+  void generateImage(BuildContext context) async {
     var loaded = await loadModel("edges2shoes");
     if (!loaded) return;
 
@@ -262,11 +265,10 @@ class _PhotoducerState extends State<Photoducer> {
     debugPrint("Running model on frame");
 
     String filePath = await stashImage(input, "recognize");
-    var recognitions = await Tflite.runModelOnImage(
+    var results = await Tflite.runPix2PixOnImage(
       path: filePath,
       imageMean: 0.0,
       imageStd: 255.0,
-      numResults: 1,
     );
 
     /*
@@ -276,6 +278,9 @@ class _PhotoducerState extends State<Photoducer> {
       numResults: 1,
     );
     */
+
+    debugPrint("Generated response: " + results[0]['filename']);
+    await loadImageFileNamed(results[0]['filename']);
   }
 
   Future<void> recognizeImage(BuildContext context) async {
@@ -323,122 +328,5 @@ class _PhotoducerState extends State<Photoducer> {
       debugPrint('Failed to load model.');
       return false;
     }
-  }
-}
-
-enum PhotoducerCanvasTool { none, draw }
-
-class PhotoducerCanvas extends StatefulWidget {
-  final PhotographTransducer transducer;
-  PhotoducerCanvas(Key key, this.transducer): super(key: key);
-
-  @override
-  State<StatefulWidget> createState() {
-    return _PhotoducerCanvasState();
-  }
-}
-
-class _PhotoducerCanvasState extends State<PhotoducerCanvas> {
-  PhotoducerCanvasTool tool = PhotoducerCanvasTool.draw;
-  List objectRecognition;
-
-  void reset([ui.Image image]) {
-    setState(() {
-      widget.transducer.reset(image);
-      objectRecognition = null;
-    });
-  }
-
-  void setTool(PhotoducerCanvasTool x) {
-    setState(() { tool = x; });
-  }
-
-  void setObjectRecognition(List x) {
-    setState(() { objectRecognition = x; });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: <Widget>[
-        buildGestureDetector(
-          Container(
-            width: widget.transducer.state.size.width,
-            height: widget.transducer.state.size.height,
-            alignment: Alignment.topLeft,
-            color: Colors.white,
-            child: RepaintBoundary(
-              child: ScopedModel<PhotographTransducer>(
-                model: widget.transducer,
-                child: ScopedModelDescendant<PhotographTransducer>(
-                  builder: (context, child, cart) => CustomPaint(
-                    painter: PixelBufferPainter(widget.transducer.state)
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      
-        Stack(children: buildObjectRecognitionBoxes(context)),
-      ],
-    );
-  }
-
-  Widget buildGestureDetector(Widget child) {
-    switch (tool) {
-      case PhotoducerCanvasTool.none:
-        return child;
-
-      case PhotoducerCanvasTool.draw:
-        return GestureDetector(
-          onPanUpdate: (DragUpdateDetails details) {
-            RenderBox box = context.findRenderObject();
-            Offset point = box.globalToLocal(details.globalPosition);
-            if (point.dx >=0 && point.dy >= 0 && point.dx < box.size.width && point.dy < box.size.height) {
-              widget.transducer.addLines(point);
-            }
-          },
-
-          onPanEnd: (DragEndDetails details) {
-            widget.transducer.addNop();
-          },
-
-          child: child
-        );
-
-      default:
-        return null;
-    }
-  }
-
-  List<Widget> buildObjectRecognitionBoxes(BuildContext context) {
-    if (objectRecognition == null) return [];
-    RenderBox box = context.findRenderObject();
-    Color blue = Color.fromRGBO(37, 213, 253, 1.0);
-    return objectRecognition.map((re) {
-      return Positioned(
-        left:   re["rect"]["x"] * box.size.width,
-        top:    re["rect"]["y"] * box.size.height,
-        width:  re["rect"]["w"] * box.size.width,
-        height: re["rect"]["h"] * box.size.height,
-        child:  Container(
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: blue,
-              width: 2,
-            ),
-          ),
-          child: Text(
-            "${re["detectedClass"]} ${(re["confidenceInClass"] * 100).toStringAsFixed(0)}%",
-            style: TextStyle(
-              background: Paint()..color = blue,
-              color: Colors.white,
-              fontSize: 12.0,
-            ),
-          ),
-        ),
-      );
-    }).toList();
   }
 }

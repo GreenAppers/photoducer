@@ -37,7 +37,8 @@ dependencies:
 
   scoped_model: ^1.0.1
 
-  tflite: 1.0.1
+  tflite:
+    path: ./flutter_tflite
 
   tuple: ^1.0.2
 
