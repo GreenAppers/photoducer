@@ -65,6 +65,7 @@ flutter:
   #  - images/a_dot_ham.jpeg
   assets:
     - assets/dogandhorse.jpg
+    - assets/shoeedges.png
     - assets/edges2shoes.tflite
     - assets/edges2shoes.txt
     - assets/yolov2_tiny.tflite

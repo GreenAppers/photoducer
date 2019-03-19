@@ -40,6 +40,7 @@ class PixelBuffer extends ImageStreamCompleter {
     paintingUserVersion = userVersion;
     ui.PictureRecorder recorder = ui.PictureRecorder();
     Canvas canvas = Canvas(recorder);
+    canvas.drawColor(Colors.white, BlendMode.src);
     if (startingImage != null) canvas.drawImage(startingImage, Offset(0, 0), Paint());
     if (painter != null) painter.paint(canvas, size);
     recorder.endRecording().toImage(size.width.floor(), size.height.floor()).then(paintUploadedComplete);
@@ -171,4 +172,24 @@ Float32List imgToFloat32List(img.Image image, int inputSize, double mean, double
     }
   }
   return convertedBytes;
+}
+
+img.Image imgFromFloat32List(Float32List image, int inputSize, double mean, double std) {
+  img.Image ret = img.Image(inputSize, inputSize);
+  var buffer = Float32List.view(image.buffer);
+  int pixelIndex = 0;
+  for (var i = 0; i < inputSize; i++) {
+    for (var j = 0; j < inputSize; j++) {
+      var x = buffer[pixelIndex+0] * std - mean;
+      var y = buffer[pixelIndex+1] * std - mean;
+      var z = buffer[pixelIndex+2] * std - mean;
+
+      ret.setPixel(j, i, img.getColor(
+        (buffer[pixelIndex+0] * std - mean).round(),
+        (buffer[pixelIndex+1] * std - mean).round(),
+        (buffer[pixelIndex+2] * std - mean).round()));
+      pixelIndex += 3;
+    }
+  }
+  return ret;
 }

@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker_saver/image_picker_saver.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:tflite/tflite.dart';
@@ -218,9 +219,13 @@ class PhotoducerState extends State<Photoducer> {
   Future<void> loadImageFileBytes(List<int> bytes) async {
     ui.Codec codec = await ui.instantiateImageCodec(bytes);
     ui.FrameInfo frame = await codec.getNextFrame();
+    return loadUiImage(frame.image);
+  }
+
+  void loadUiImage(ui.Image image) {
     setState((){
       loadingImage = false;
-      widget.transducer.reset(frame.image);
+      widget.transducer.reset(image);
       //canvasKey.currentState.objectRecognition = null;
     });
   }
@@ -270,17 +275,27 @@ class PhotoducerState extends State<Photoducer> {
       imageMean: 0.0,
       imageStd: 255.0,
     );
-
-    /*
-    img.Image resizedImage = await imgFromImage(input);
-    var recognitions = await Tflite.runModelOnBinary(
-      binary: imgToFloat32List(resizedImage, 256, 0.0, 255.0).buffer.asUint8List(),
-      numResults: 1,
-    );
-    */
-
     debugPrint("Generated response: " + results[0]['filename']);
     await loadImageFileNamed(results[0]['filename']);
+
+    /*
+    img.Image oriImage = await imgFromImage(input);
+    img.Image resizedImage = oriImage;
+    if (oriImage.width != 256 || oriImage.height != 256)
+      resizedImage = img.copyResize(oriImage, 256, 256);
+
+    Float32List floats = imgToFloat32List(resizedImage, 256, 0.0, 255.0);
+    var results = await Tflite.runPix2PixOnBinary(
+      binary: floats.buffer.asUint8List(),
+    );
+    Uint8List binary = results[0]['binary'];
+    // Otherwise bug where x.asUint8List() == y.asUint8List() but x.asFloat32List() != y.asFloat32List()
+    binary = Uint8List.fromList(binary); 
+
+    img.Image genImage = imgFromFloat32List(binary.buffer.asFloat32List(), 256, 0.0, 255.0);
+    ui.Image uploadedImage = await imageFromImg(genImage);
+    loadUiImage(uploadedImage);
+    */
   }
 
   Future<void> recognizeImage(BuildContext context) async {
