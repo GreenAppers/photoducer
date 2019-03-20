@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import 'package:scoped_model/scoped_model.dart';
@@ -22,6 +23,7 @@ class PhotoducerCanvas extends StatefulWidget {
 class PhotoducerCanvasState extends State<PhotoducerCanvas> {
   PhotoducerCanvasTool tool = PhotoducerCanvasTool.draw;
   List objectRecognition;
+  int dragCount = 0;
 
   void reset([ui.Image image]) {
     setState(() {
@@ -36,6 +38,39 @@ class PhotoducerCanvasState extends State<PhotoducerCanvas> {
 
   void setObjectRecognition(List x) {
     setState(() { objectRecognition = x; });
+  }
+
+  void addLines(Offset globalPosition) {
+    RenderBox box = context.findRenderObject();
+    Offset point = box.globalToLocal(globalPosition);
+    if (point.dx >=0 && point.dy >= 0 && point.dx < box.size.width && point.dy < box.size.height) {
+      widget.transducer.addLines(point);
+    }
+  }
+
+  Drag handleDragStart(Offset position) {
+    if (dragCount < 1) {
+      dragCount++;
+      return DragHandler(handleDragUpdate, handleDragEnd);
+    } else {
+      return null;
+    }
+  }
+
+  void handleDragUpdate(DragUpdateDetails update) {
+    switch(tool) {
+      case PhotoducerCanvasTool.draw:
+        addLines(update.globalPosition);
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  void handleDragEnd(DragEndDetails details) {
+    widget.transducer.addNop();
+    dragCount--;
   }
 
   @override
@@ -72,20 +107,15 @@ class PhotoducerCanvasState extends State<PhotoducerCanvas> {
         return child;
 
       case PhotoducerCanvasTool.draw:
-        return GestureDetector(
-          onPanUpdate: (DragUpdateDetails details) {
-            RenderBox box = context.findRenderObject();
-            Offset point = box.globalToLocal(details.globalPosition);
-            if (point.dx >=0 && point.dy >= 0 && point.dx < box.size.width && point.dy < box.size.height) {
-              widget.transducer.addLines(point);
-            }
+        return RawGestureDetector(
+          child: child,
+          behavior: HitTestBehavior.opaque,
+          gestures: <Type, GestureRecognizerFactory>{
+            ImmediateMultiDragGestureRecognizer: GestureRecognizerFactoryWithHandlers<ImmediateMultiDragGestureRecognizer>(
+              () => ImmediateMultiDragGestureRecognizer(),
+              (ImmediateMultiDragGestureRecognizer instance) { instance..onStart = handleDragStart; },
+            ),
           },
-
-          onPanEnd: (DragEndDetails details) {
-            widget.transducer.addNop();
-          },
-
-          child: child
         );
 
       default:
@@ -122,4 +152,24 @@ class PhotoducerCanvasState extends State<PhotoducerCanvas> {
       );
     }).toList();
   }
+}
+
+class DragHandler extends Drag {
+  final GestureDragUpdateCallback onUpdate;
+  final GestureDragEndCallback onEnd;
+
+  DragHandler(this.onUpdate, this.onEnd);
+
+  @override
+  void update(DragUpdateDetails details) {
+    onUpdate(details);
+  }
+
+  @override
+  void end(DragEndDetails details) {
+    onEnd(details);
+  }
+
+  @override
+  void cancel(){}
 }

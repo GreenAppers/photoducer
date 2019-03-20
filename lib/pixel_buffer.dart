@@ -120,18 +120,18 @@ class PixelBufferImageProvider extends ImageProvider<PixelBufferImageProvider> {
 }
 
 class PixelBufferPainter extends CustomPainter {
-  ui.Image pixelBuffer;
+  ui.Image uploadedPixelBuffer;
 
-  PixelBufferPainter(PixelBuffer pb) : pixelBuffer = pb.uploaded;
+  PixelBufferPainter(PixelBuffer pb) : uploadedPixelBuffer = pb.uploaded;
 
   @override
   bool shouldRepaint(PixelBufferPainter oldDelegate) {
-    return pixelBuffer != oldDelegate.pixelBuffer;
+    return uploadedPixelBuffer != oldDelegate.uploadedPixelBuffer;
   }
 
   void paint(Canvas canvas, Size size) {
-    if (pixelBuffer == null) return;
-    canvas.drawImage(pixelBuffer, Offset(0, 0), Paint());
+    if (uploadedPixelBuffer == null) return;
+    canvas.drawImage(uploadedPixelBuffer, Offset(0, 0), Paint());
   }
 }
 
@@ -180,10 +180,6 @@ img.Image imgFromFloat32List(Float32List image, int inputSize, double mean, doub
   int pixelIndex = 0;
   for (var i = 0; i < inputSize; i++) {
     for (var j = 0; j < inputSize; j++) {
-      var x = buffer[pixelIndex+0] * std - mean;
-      var y = buffer[pixelIndex+1] * std - mean;
-      var z = buffer[pixelIndex+2] * std - mean;
-
       ret.setPixel(j, i, img.getColor(
         (buffer[pixelIndex+0] * std - mean).round(),
         (buffer[pixelIndex+1] * std - mean).round(),

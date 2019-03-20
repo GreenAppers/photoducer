@@ -56,6 +56,7 @@ class PhotographTransducer extends Model {
   }
 
   void addLines(Offset point) {
+    if (input.length > 0 && input.last.key == Input.lines && input.last.value == point) return;
     addInput(MapEntry<Input, Object>(Input.lines, point));
     updateState();
   }
