@@ -66,8 +66,8 @@ flutter:
   assets:
     - assets/dogandhorse.jpg
     - assets/shoeedges.png
-    - assets/edges2shoes.tflite
-    - assets/edges2shoes.txt
+    - assets/contours2cats.tflite
+    - assets/contours2cats.txt
     - assets/yolov2_tiny.tflite
     - assets/yolov2_tiny.txt
 

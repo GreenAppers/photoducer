@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -8,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/painting.dart';
 
 import 'package:image/image.dart' as img;
-import 'package:path_provider/path_provider.dart';
 
 typedef ImgCallback = void Function(img.Image);
 typedef ImageCallback = void Function(ui.Image);
@@ -145,18 +143,6 @@ Future<ui.Image> imageFromImg(img.Image input) async {
   ui.decodeImageFromPixels(input.getBytes(), input.width, input.height, ui.PixelFormat.rgba8888,
                            (ui.Image result) { completer.complete(result); });
   return completer.future;
-}
-
-Future<String> stashImagePath(String name) async {
-  Directory directory = await getApplicationDocumentsDirectory();
-  return directory.path + Platform.pathSeparator + name + ".png";
-}
-
-Future<String> stashImage(ui.Image image, String name) async {
-  var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
-  String path = await stashImagePath(name);
-  File(path).writeAsBytesSync(pngBytes.buffer.asInt8List());
-  return path;
 }
 
 Float32List imgToFloat32List(img.Image image, int inputSize, double mean, double std) {

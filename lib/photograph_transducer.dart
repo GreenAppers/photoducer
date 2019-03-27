@@ -7,7 +7,17 @@ import 'package:scoped_model/scoped_model.dart';
 
 import 'package:photoducer/pixel_buffer.dart';
 
-enum Input { reset, nop, color, strokeCap, strokeWidth, lines }
+enum StateRepresentation { none, uploaded, downloaded, backendTexture }
+
+enum InputType { reset, nop, color, strokeCap, strokeWidth, lines, blur }
+
+class Input {
+  StateRepresentation scope;
+  InputType key;
+  Object value; 
+
+  Input(this.scope, this.key, this.value);
+}
 
 class OrthogonalState {
   Paint paint = Paint();
@@ -24,7 +34,7 @@ class PhotographTransducer extends Model {
   PixelBuffer state;
   VoidCallback updateStateMethod;
   OrthogonalState orthogonalState;
-  List<MapEntry<Input, Object>> input;
+  List<Input> input;
 
   PhotographTransducer() {
     updateStateMethod = updateStatePaintDelta;
@@ -33,9 +43,9 @@ class PhotographTransducer extends Model {
 
   void reset([ui.Image image]) {
     version = 0;
-    input = <MapEntry<Input, Object>>[];
+    input = <Input>[];
     if (image != null) {
-      addInput(MapEntry<Input, Object>(Input.reset, image));
+      addInput(Input(StateRepresentation.uploaded, InputType.reset, image));
       state = PixelBuffer.fromImage(image, version);
       notifyListeners();
     } else {
@@ -45,24 +55,24 @@ class PhotographTransducer extends Model {
     orthogonalState = OrthogonalState();
   }
 
-  void addInput(MapEntry<Input, Object> x) {
+  void addInput(Input x) {
     if (version < input.length) input.removeRange(version, input.length);
     input.add(x);
     version++;
   }
 
   void addNop() {
-    addInput(MapEntry<Input, Object>(Input.nop, null));
+    addInput(Input(StateRepresentation.none, InputType.nop, null));
   }
 
   void addLines(Offset point) {
-    if (input.length > 0 && input.last.key == Input.lines && input.last.value == point) return;
-    addInput(MapEntry<Input, Object>(Input.lines, point));
+    if (input.length > 0 && input.last.key == InputType.lines && input.last.value == point) return;
+    addInput(Input(StateRepresentation.uploaded, InputType.lines, point));
     updateState();
   }
 
   void changeColor(Color color) {
-    addInput(MapEntry<Input, Object>(Input.color, color));
+    addInput(Input(StateRepresentation.none, InputType.color, color));
   }
 
   void walkVersion(int n) {
@@ -80,24 +90,30 @@ class PhotographTransducer extends Model {
       var x = input[i];
 
       switch (input[i].key) {
-        case Input.reset:
+        case InputType.blur:
+          if (!x.value) {
+            return i;
+          }
+          continue;
+
+        case InputType.reset:
           canvas.drawImage(x.value, Offset(0, 0), o.paint);
           break;
 
-        case Input.color:
+        case InputType.color:
           o.paint.color = x.value;
           break;
       
-        case Input.strokeCap:
+        case InputType.strokeCap:
           o.paint.strokeCap = x.value;
           break;
       
-        case Input.strokeWidth:
+        case InputType.strokeWidth:
           o.paint.strokeWidth = x.value;
           break;
       
-        case Input.lines:
-          for (/**/; i < endVersion-1 && input[i+1].key == Input.lines; i++) {
+        case InputType.lines:
+          for (/**/; i < endVersion-1 && input[i+1].key == InputType.lines; i++) {
             Offset p1 = input[i].value, p2 = input[i+1].value;
             canvas.drawLine(p1, p2, o.paint);
           }
