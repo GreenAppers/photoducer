@@ -4,3 +4,6 @@
 [submodule "flutter_tflite"]
 	path = flutter_tflite
 	url = https://github.com/GreenAppers/flutter_tflite
+[submodule "persistent_canvas"]
+	path = persistent_canvas
+	url = https://github.com/GreenAppers/persistent_canvas

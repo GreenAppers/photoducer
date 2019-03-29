@@ -1,11 +1,10 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import 'package:persistent_canvas/persistent_canvas.dart';
+import 'package:persistent_canvas/photograph_transducer.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:scoped_model/scoped_model.dart';
-
-import 'package:photoducer/persistent_canvas.dart';
-import 'package:photoducer/photograph_transducer.dart';
 
 enum PhotoducerTool { none, draw }
 
@@ -148,7 +147,7 @@ class _DrawDragHandler extends Drag {
     if (point.dx >=0 && point.dy >= 0 && point.dx < box.size.width && point.dy < box.size.height) {
       if (lastPoint == null) lastPoint = point;
       if (lastPoint != point) {
-        parent.widget.persistentCanvas.drawLine(lastPoint, point, parent.model().orthogonalState.paint);
+        parent.widget.persistentCanvas.drawLine(lastPoint, point, null);
         lastPoint = point;
       }
     }

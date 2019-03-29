@@ -9,19 +9,13 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_crashlytics/flutter_crashlytics.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image/image.dart' as img;
-import 'package:image/src/filter/emboss.dart';
-import 'package:image/src/filter/gaussian_blur.dart';
-import 'package:image/src/filter/grayscale.dart';
-import 'package:image/src/filter/sepia.dart';
-import 'package:image/src/filter/sobel.dart';
-import 'package:image/src/filter/vignette.dart';
 import 'package:image_picker_saver/image_picker_saver.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:persistent_canvas/persistent_canvas.dart';
+import 'package:persistent_canvas/photograph_transducer.dart';
 import 'package:tflite/tflite.dart';
 
-import 'package:photoducer/persistent_canvas.dart';
 import 'package:photoducer/photoducer.dart';
-import 'package:photoducer/photograph_transducer.dart';
 
 void main() async {
   bool inDebugMode = false;
@@ -42,7 +36,7 @@ void main() async {
         theme: ThemeData(
           primarySwatch: Colors.blue,
         ),
-        home: _PhotoducerApp()
+        home: PhotoducerApp()
       ));
     }, onError: (error, stackTrace) async {
       await FlutterCrashlytics().reportCrash(error, stackTrace, forceCrash: false);
@@ -50,12 +44,12 @@ void main() async {
   );
 }
 
-class _PhotoducerApp extends StatefulWidget {
+class PhotoducerApp extends StatefulWidget {
   @override
   _PhotoducerAppState createState() => _PhotoducerAppState();
 }
 
-class _PhotoducerAppState extends State<_PhotoducerApp> {
+class _PhotoducerAppState extends State<PhotoducerApp> {
   final PersistentCanvas persistentCanvas = PersistentCanvas();
   final PhotoducerModel photoducerState = PhotoducerModel();
   String loadedImage, loadedModel;
@@ -180,7 +174,7 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
                       FlatButton(
                         child: const Text('Got it'),
                         onPressed: () {
-                          model().addChangeColor(pickerColor);
+                          model().changeColor(pickerColor);
                           Navigator.of(context).pop();
                         },
                       ),
@@ -188,18 +182,6 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
                   ),
                 );
               }
-            }
-          ),
-
-          PopupMenuButton(
-            icon: Icon(Icons.art_track),
-            itemBuilder: (_) => <PopupMenuItem<String>>[
-              PopupMenuItem<String>(child: const Text('Recognize'), value: 'recognize'), // Icons.art_track
-              PopupMenuItem<String>(child: const Text('Generate'),  value: 'generate'), // Icons.toys
-            ],
-            onSelected: (String v) {
-              if (v == 'recognize') recognizeImage(context);
-              if (v == 'generate') generateImage(context);
             }
           ),
 
@@ -216,29 +198,41 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
             onSelected: (String v) {
               switch (v) {
                 case 'blur':
-                  model().addDownloadedTransform((img.Image x) => gaussianBlur(x, 10));
+                  model().addDownloadedTransform((img.Image x) => img.gaussianBlur(x, 10));
                   break;
 
                 case 'edgeDetect':
-                  model().addDownloadedTransform((img.Image x) => sobel(x));
+                  model().addDownloadedTransform((img.Image x) => img.sobel(x));
                   break;
 
                 case 'emboss':
-                  model().addDownloadedTransform((img.Image x) => emboss(x));
+                  model().addDownloadedTransform((img.Image x) => img.emboss(x));
                   break;
 
                 case 'vignette':
-                  model().addDownloadedTransform((img.Image x) => vignette(x));
+                  model().addDownloadedTransform((img.Image x) => img.vignette(x));
                   break;
 
                 case 'sepia':
-                  model().addDownloadedTransform((img.Image x) => sepia(x));
+                  model().addDownloadedTransform((img.Image x) => img.sepia(x));
                   break;
 
                 case 'grayscale':
-                  model().addDownloadedTransform((img.Image x) => grayscale(x));
+                  model().addDownloadedTransform((img.Image x) => img.grayscale(x));
                   break;
               }
+            }
+          ),
+
+          PopupMenuButton(
+            icon: Icon(Icons.art_track),
+            itemBuilder: (_) => <PopupMenuItem<String>>[
+              PopupMenuItem<String>(child: const Text('Recognize'), value: 'recognize'), // Icons.art_track
+              PopupMenuItem<String>(child: const Text('Generate'),  value: 'generate'), // Icons.toys
+            ],
+            onSelected: (String v) {
+              if (v == 'recognize') recognizeImage(context);
+              if (v == 'generate') generateImage(context);
             }
           ),
 
@@ -277,7 +271,8 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
       loadingImage = true;
       loadedImage = filePath.split(Platform.pathSeparator).last;
     });
-    return loadImageFileNamed(filePath);
+    ui.Image image = await loadImageFileNamed(filePath);
+    loadUiImage(image);
   }
 
   Future<void> loadAssetImage(BuildContext context, String name) async {
@@ -286,18 +281,19 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
       loadedImage = name;
     });
     ByteData bytes = await rootBundle.load("assets" + Platform.pathSeparator + name);
-    return loadImageFileBytes(bytes.buffer.asUint8List());
+    ui.Image image = await loadImageFileBytes(bytes.buffer.asUint8List());
+    loadUiImage(image);
   }
 
-  Future<void> loadImageFileNamed(String filename) async {
+  Future<ui.Image> loadImageFileNamed(String filename) async {
     List<int> bytes = await File(filename).readAsBytes();
     return loadImageFileBytes(bytes);
   }
 
-  Future<void> loadImageFileBytes(List<int> bytes) async {
+  Future<ui.Image> loadImageFileBytes(List<int> bytes) async {
     ui.Codec codec = await ui.instantiateImageCodec(bytes);
     ui.FrameInfo frame = await codec.getNextFrame();
-    return loadUiImage(frame.image);
+    return frame.image;
   }
 
   void loadUiImage(ui.Image image) {
@@ -307,7 +303,7 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
   }
 
   Future<String> saveImage(BuildContext context) async {
-    ui.Image image = await model().state.uploaded;
+    ui.Image image = model().state.uploaded;
     var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
     return ImagePickerSaver.saveFile(fileData: pngBytes.buffer.asUint8List());
   }
@@ -325,11 +321,11 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
   }
 
   Future<String> stashRenderedImage(BuildContext context, String name) async {
-    ui.Image image = await model().state.uploaded;
+    ui.Image image = model().state.uploaded;
     return stashImage(image, name);
   }
 
-  Future<void> unstashImage(BuildContext context, String name) async {
+  Future<ui.Image> unstashImage(BuildContext context, String name) async {
     String filePath = await stashImagePath(name);
     return loadImageFileNamed(filePath);
   }
@@ -338,7 +334,7 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
     var loaded = await loadModel("contours2cats");
     if (!loaded) return;
 
-    ui.Image input = await model().state.uploaded;
+    ui.Image input = model().state.uploaded;
     debugPrint("Running model on frame");
 
     String filePath = await stashImage(input, "recognize");
@@ -348,7 +344,8 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
       imageStd: 255.0,
     );
     debugPrint("Generated response: " + results[0]['filename']);
-    await loadImageFileNamed(results[0]['filename']);
+    ui.Image uploadedImage = await loadImageFileNamed(results[0]['filename']);
+    model().addRedraw(uploadedImage);
 
     /*
     img.Image oriImage = await imgFromImage(input);
@@ -374,7 +371,7 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
     var loaded = await loadModel("yolov2_tiny");
     if (!loaded) return;
 
-    ui.Image input = await model().state.uploaded;
+    ui.Image input = model().state.uploaded;
     String filePath = await stashImage(input, "recognize");
     var recognitions = await Tflite.detectObjectOnImage(
       path: filePath,
@@ -386,7 +383,7 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
     );
 
     /*
-    ui.Image input = await model().state.uploaded;
+    ui.Image input = model().state.uploaded;
     img.Image oriImage = await imgFromImage(input);
     img.Image resizedImage = img.copyResize(oriImage, 416, 416);
     var recognitions = await Tflite.detectObjectOnBinary(
