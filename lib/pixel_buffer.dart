@@ -8,8 +8,9 @@ import 'package:flutter/painting.dart';
 
 import 'package:image/image.dart' as img;
 
-typedef ImgCallback = void Function(img.Image);
 typedef ImageCallback = void Function(ui.Image);
+typedef ImgCallback = void Function(img.Image);
+typedef ImgFilter = img.Image Function(img.Image);
 
 class PixelBuffer extends ImageStreamCompleter {
   Size size;
@@ -19,6 +20,7 @@ class PixelBuffer extends ImageStreamCompleter {
   int uploadedVersion = 0, uploadingVersion = 0;
   int downloadedVersion = 0, downloadingVersion = 0;
   int paintedUserVersion = 0, paintingUserVersion = 0;
+  int transformedUserVersion = 0, transformingUserVersion = 0;
 
   PixelBuffer(this.size) {
     paintUploaded();
@@ -34,7 +36,24 @@ class PixelBuffer extends ImageStreamCompleter {
     setDownloadedState((img.Image x) {});
   }
 
+  void transformDownloaded(ImgFilter tf, {int userVersion=1}) {
+    assert(transformingUserVersion == 0);
+    transformingUserVersion = userVersion;
+    if (downloadedVersion >= uploadedVersion) return transformDownloadedComplete(tf);
+    downloadUploaded((img.Image x) {
+      downloadUploadedComplete(x);
+      transformDownloadedComplete(tf);
+    });
+  }
+
+  void transformDownloadedComplete(ImgFilter tf) {
+    transformedUserVersion = transformingUserVersion;
+    transformingUserVersion = 0;
+    setDownloadedState((img.Image x) { downloaded = tf(x); });
+  }
+
   void paintUploaded({CustomPainter painter, ui.Image startingImage, int userVersion=1}) {
+    assert(paintingUserVersion == 0);
     paintingUserVersion = userVersion;
     ui.PictureRecorder recorder = ui.PictureRecorder();
     Canvas canvas = Canvas(recorder);
@@ -91,11 +110,13 @@ class PixelBuffer extends ImageStreamCompleter {
   }
 
   void downloadUploaded(ImgCallback cb) {
+    assert(downloadingVersion == 0);
     downloadingVersion = uploadedVersion;
     imgFromImage(uploaded).then(cb);
   }
 
   void uploadDownloaded(ImageCallback cb) {
+    assert(uploadingVersion == 0);
     uploadingVersion = downloadedVersion;
     imageFromImg(downloaded).then(cb);
   }
@@ -133,11 +154,6 @@ class PixelBufferPainter extends CustomPainter {
   }
 }
 
-Future<img.Image> imgFromImage(ui.Image input) async {
-  var rgbaBytes = await input.toByteData(format: ui.ImageByteFormat.rawRgba);
-  return img.Image.fromBytes(input.width, input.height, rgbaBytes.buffer.asUint8List());
-}
-
 Future<ui.Image> imageFromImg(img.Image input) async {
   Completer<ui.Image> completer = Completer(); 
   ui.decodeImageFromPixels(input.getBytes(), input.width, input.height, ui.PixelFormat.rgba8888,
@@ -145,19 +161,9 @@ Future<ui.Image> imageFromImg(img.Image input) async {
   return completer.future;
 }
 
-Float32List imgToFloat32List(img.Image image, int inputSize, double mean, double std) {
-  var convertedBytes = Float32List(1 * inputSize * inputSize * 3);
-  var buffer = Float32List.view(convertedBytes.buffer);
-  int pixelIndex = 0;
-  for (var i = 0; i < inputSize; i++) {
-    for (var j = 0; j < inputSize; j++) {
-      var pixel = image.getPixel(j, i);
-      buffer[pixelIndex++] = (img.getRed  (pixel) - mean) / std;
-      buffer[pixelIndex++] = (img.getGreen(pixel) - mean) / std;
-      buffer[pixelIndex++] = (img.getBlue (pixel) - mean) / std;
-    }
-  }
-  return convertedBytes;
+Future<img.Image> imgFromImage(ui.Image input) async {
+  var rgbaBytes = await input.toByteData(format: ui.ImageByteFormat.rawRgba);
+  return img.Image.fromBytes(input.width, input.height, rgbaBytes.buffer.asUint8List());
 }
 
 img.Image imgFromFloat32List(Float32List image, int inputSize, double mean, double std) {
@@ -174,4 +180,19 @@ img.Image imgFromFloat32List(Float32List image, int inputSize, double mean, doub
     }
   }
   return ret;
+}
+
+Float32List imgToFloat32List(img.Image image, int inputSize, double mean, double std) {
+  var convertedBytes = Float32List(1 * inputSize * inputSize * 3);
+  var buffer = Float32List.view(convertedBytes.buffer);
+  int pixelIndex = 0;
+  for (var i = 0; i < inputSize; i++) {
+    for (var j = 0; j < inputSize; j++) {
+      var pixel = image.getPixel(j, i);
+      buffer[pixelIndex++] = (img.getRed  (pixel) - mean) / std;
+      buffer[pixelIndex++] = (img.getGreen(pixel) - mean) / std;
+      buffer[pixelIndex++] = (img.getBlue (pixel) - mean) / std;
+    }
+  }
+  return convertedBytes;
 }

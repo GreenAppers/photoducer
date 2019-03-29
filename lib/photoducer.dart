@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import 'package:photo_view/photo_view.dart';
 import 'package:scoped_model/scoped_model.dart';
 
 import 'package:photoducer/persistent_canvas.dart';
@@ -38,11 +39,18 @@ class Photoducer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ScopedModel<PhotoducerModel>(
-      model: state,
-      child: ScopedModelDescendant<PhotoducerModel>(
-        builder: (context, child, cart) => _Photoducer(state, persistentCanvas),
+    return PhotoView.customChild(
+      child: ScopedModel<PhotoducerModel>(
+        model: state,
+        child: ScopedModelDescendant<PhotoducerModel>(
+          builder: (context, child, cart) => _Photoducer(state, persistentCanvas),
+        ),
       ),
+      childSize: persistentCanvas.model.state.size,
+      maxScale: PhotoViewComputedScale.covered * 2.0,
+      minScale: PhotoViewComputedScale.contained * 0.8,
+      initialScale: PhotoViewComputedScale.covered,
+      backgroundDecoration: BoxDecoration(color: Colors.blueGrey[50]),
     );
   }
 }
@@ -127,6 +135,7 @@ class _PhotoducerState extends State<_Photoducer> {
 class _DrawDragHandler extends Drag {
   final _PhotoducerState parent;
   final BuildContext context;
+  Offset lastPoint;
 
   _DrawDragHandler(this.parent, this.context) {
     parent.dragCount++;
@@ -137,14 +146,17 @@ class _DrawDragHandler extends Drag {
     RenderBox box = context.findRenderObject();
     Offset point = box.globalToLocal(update.globalPosition);
     if (point.dx >=0 && point.dy >= 0 && point.dx < box.size.width && point.dy < box.size.height) {
-      parent.model().addLines(point);
+      if (lastPoint == null) lastPoint = point;
+      if (lastPoint != point) {
+        parent.widget.persistentCanvas.drawLine(lastPoint, point, parent.model().orthogonalState.paint);
+        lastPoint = point;
+      }
     }
   }
 
   @override
   void end(DragEndDetails details) {
     parent.dragCount--;
-    parent.model().addNop();
   }
 
   @override

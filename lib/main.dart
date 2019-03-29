@@ -8,9 +8,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_crashlytics/flutter_crashlytics.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:image/image.dart' as img;
+import 'package:image/src/filter/emboss.dart';
+import 'package:image/src/filter/gaussian_blur.dart';
+import 'package:image/src/filter/grayscale.dart';
+import 'package:image/src/filter/sepia.dart';
+import 'package:image/src/filter/sobel.dart';
+import 'package:image/src/filter/vignette.dart';
 import 'package:image_picker_saver/image_picker_saver.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:photo_view/photo_view.dart';
 import 'package:tflite/tflite.dart';
 
 import 'package:photoducer/persistent_canvas.dart';
@@ -29,17 +35,19 @@ void main() async {
 
   await FlutterCrashlytics().initialize();
 
-  runZoned<Future<void>>(() async {
-    runApp(MaterialApp(
-      title: 'Photoducer',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: _PhotoducerApp()
-    ));
-  }, onError: (error, stackTrace) async {
-    await FlutterCrashlytics().reportCrash(error, stackTrace, forceCrash: false);
-  });
+  runZoned<Future<void>>(
+    () async {
+      runApp(MaterialApp(
+        title: 'Photoducer',
+        theme: ThemeData(
+          primarySwatch: Colors.blue,
+        ),
+        home: _PhotoducerApp()
+      ));
+    }, onError: (error, stackTrace) async {
+      await FlutterCrashlytics().reportCrash(error, stackTrace, forceCrash: false);
+    }
+  );
 }
 
 class _PhotoducerApp extends StatefulWidget {
@@ -48,10 +56,10 @@ class _PhotoducerApp extends StatefulWidget {
 }
 
 class _PhotoducerAppState extends State<_PhotoducerApp> {
-  final PhotoducerModel photoducerState = PhotoducerModel();
   final PersistentCanvas persistentCanvas = PersistentCanvas();
-  bool loadingImage = false;
+  final PhotoducerModel photoducerState = PhotoducerModel();
   String loadedImage, loadedModel;
+  bool loadingImage = false;
 
   PhotographTransducer model() { return persistentCanvas.model; }
 
@@ -91,14 +99,7 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
                         child: const CircularProgressIndicator(),
                       ),
                     ) :
-                    PhotoView.customChild(
-                      child: Photoducer(photoducerState, persistentCanvas),
-                      childSize: model().state.size,
-                      maxScale: PhotoViewComputedScale.covered * 2.0,
-                      minScale: PhotoViewComputedScale.contained * 0.8,
-                      initialScale: PhotoViewComputedScale.covered,
-                      backgroundDecoration: BoxDecoration(color: Colors.blueGrey[50]),
-                    )
+                    Photoducer(photoducerState, persistentCanvas)
                   ),
                 ),
               ),
@@ -127,10 +128,10 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
               PopupMenuItem<String>(child: const Text('Stock'), value: 'stock'),
             ],
             onSelected: (String v) {
-              if (v == 'new') loadUiImage(null);
-              if (v == 'save') saveImage(context);
-              if (v == 'load') loadImage(context);
-              if (v == 'stock') loadAssetImage(context, 'dogandhorse.jpg');
+              if      (v == 'new') { loadedImage=null; loadUiImage(null); }
+              else if (v == 'save') saveImage(context);
+              else if (v == 'load') loadImage(context);
+              else if (v == 'stock') loadAssetImage(context, 'dogandhorse.jpg');
             }
           ),
 
@@ -141,8 +142,15 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
               PopupMenuItem<String>(child: const Text('Draw'), value: 'draw'), // Icons.brush
             ],
             onSelected: (String v) {
-              if (v == 'hand') photoducerState.setTool(PhotoducerTool.none);
-              if (v == 'draw') photoducerState.setTool(PhotoducerTool.draw);
+              switch (v) {
+                case 'hand':
+                  photoducerState.setTool(PhotoducerTool.none);
+                  break;
+
+                case 'draw':
+                  photoducerState.setTool(PhotoducerTool.draw);
+                  break;
+              }
             }
           ),
 
@@ -172,7 +180,7 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
                       FlatButton(
                         child: const Text('Got it'),
                         onPressed: () {
-                          model().changeColor(pickerColor);
+                          model().addChangeColor(pickerColor);
                           Navigator.of(context).pop();
                         },
                       ),
@@ -200,9 +208,37 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
             itemBuilder: (_) => <PopupMenuItem<String>>[
               PopupMenuItem<String>(child: const Text('Blur'),        value: 'blur'),
               PopupMenuItem<String>(child: const Text('Edge detect'), value: 'edgeDetect'),
+              PopupMenuItem<String>(child: const Text('Emboss'),      value: 'emboss'),
+              PopupMenuItem<String>(child: const Text('Vignette'),    value: 'vignette'),
+              PopupMenuItem<String>(child: const Text('Sepia'),       value: 'sepia'),
+              PopupMenuItem<String>(child: const Text('Grayscale'),   value: 'grayscale'),
             ],
             onSelected: (String v) {
-              if (v == 'blur') {}
+              switch (v) {
+                case 'blur':
+                  model().addDownloadedTransform((img.Image x) => gaussianBlur(x, 10));
+                  break;
+
+                case 'edgeDetect':
+                  model().addDownloadedTransform((img.Image x) => sobel(x));
+                  break;
+
+                case 'emboss':
+                  model().addDownloadedTransform((img.Image x) => emboss(x));
+                  break;
+
+                case 'vignette':
+                  model().addDownloadedTransform((img.Image x) => vignette(x));
+                  break;
+
+                case 'sepia':
+                  model().addDownloadedTransform((img.Image x) => sepia(x));
+                  break;
+
+                case 'grayscale':
+                  model().addDownloadedTransform((img.Image x) => grayscale(x));
+                  break;
+              }
             }
           ),
 
@@ -271,7 +307,7 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
   }
 
   Future<String> saveImage(BuildContext context) async {
-    ui.Image image = await model().renderImage();
+    ui.Image image = await model().state.uploaded;
     var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
     return ImagePickerSaver.saveFile(fileData: pngBytes.buffer.asUint8List());
   }
@@ -289,7 +325,7 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
   }
 
   Future<String> stashRenderedImage(BuildContext context, String name) async {
-    ui.Image image = await model().renderImage();
+    ui.Image image = await model().state.uploaded;
     return stashImage(image, name);
   }
 
@@ -302,7 +338,7 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
     var loaded = await loadModel("contours2cats");
     if (!loaded) return;
 
-    ui.Image input = await model().renderImage();
+    ui.Image input = await model().state.uploaded;
     debugPrint("Running model on frame");
 
     String filePath = await stashImage(input, "recognize");
@@ -338,7 +374,7 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
     var loaded = await loadModel("yolov2_tiny");
     if (!loaded) return;
 
-    ui.Image input = await model().renderImage();
+    ui.Image input = await model().state.uploaded;
     String filePath = await stashImage(input, "recognize");
     var recognitions = await Tflite.detectObjectOnImage(
       path: filePath,
@@ -350,7 +386,7 @@ class _PhotoducerAppState extends State<_PhotoducerApp> {
     );
 
     /*
-    ui.Image input = await model().renderImage();
+    ui.Image input = await model().state.uploaded;
     img.Image oriImage = await imgFromImage(input);
     img.Image resizedImage = img.copyResize(oriImage, 416, 416);
     var recognitions = await Tflite.detectObjectOnBinary(

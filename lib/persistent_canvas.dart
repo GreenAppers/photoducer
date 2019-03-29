@@ -57,6 +57,8 @@ class PersistentCanvas implements Canvas {
 
   @override
   void drawLine(Offset p1, Offset p2, Paint paint) {
+    model.addInput(Input((Canvas canvas, Size size, OrthogonalState o, Object x) => canvas.drawLine(p1, x, paint), p2));
+    model.updateState();
   }
 
   @override
