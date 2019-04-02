@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import 'package:busy_model/busy_model.dart';
 import 'package:persistent_canvas/persistent_canvas.dart';
 import 'package:persistent_canvas/photograph_transducer.dart';
 import 'package:photo_view/photo_view.dart';
@@ -71,11 +72,14 @@ class _PhotoducerState extends State<_Photoducer> {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: <Widget>[
-        buildGestureDetector(context, PersistentCanvasWidget(widget.persistentCanvas)),
-        Stack(children: buildObjectRecognitionBoxes(context)),
-      ],
+    return BusyModalBarrier(
+      model: ScopedModel.of<BusyModel>(context, rebuildOnChange: true),
+      child: Stack(
+        children: <Widget>[
+          buildGestureDetector(context, PersistentCanvasWidget(widget.persistentCanvas)),
+          Stack(children: buildObjectRecognitionBoxes(context)),
+        ],
+      ),
     );
   }
 

@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:busy_model/busy_model.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_crashlytics/flutter_crashlytics.dart';
 import 'package:file_picker/file_picker.dart';
@@ -50,10 +51,10 @@ class PhotoducerApp extends StatefulWidget {
 }
 
 class _PhotoducerAppState extends State<PhotoducerApp> {
+  final BusyModel busy = BusyModel();
   final PersistentCanvas persistentCanvas = PersistentCanvas();
   final PhotoducerModel photoducerState = PhotoducerModel();
   String loadedImage, loadedModel;
-  bool loadingImage = false;
 
   PhotographTransducer model() { return persistentCanvas.model; }
 
@@ -77,24 +78,16 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
         ],
       ),
 
-      body: Container(
-        decoration: BoxDecoration(color: Colors.blueGrey[50]),
-        child: IgnorePointer(
-          ignoring: loadingImage,
+      body: BusyScope(
+        model: busy,
+        child: Container(
+          decoration: BoxDecoration(color: Colors.blueGrey[50]),
           child: Column(
             children: <Widget>[
+
               Expanded(
                 child: ClipRect(
-                  child: (loadingImage ?
-                    Center(
-                      child: Container(
-                        width: 20.0,
-                        height: 20.0,
-                        child: const CircularProgressIndicator(),
-                      ),
-                    ) :
-                    Photoducer(photoducerState, persistentCanvas)
-                  ),
+                  child: Photoducer(photoducerState, persistentCanvas)
                 ),
               ),
 
@@ -268,8 +261,8 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     String filePath = await FilePicker.getFilePath(type: FileType.IMAGE);
     if (filePath == '') return voidResult();
     setState((){
-      loadingImage = true;
       loadedImage = filePath.split(Platform.pathSeparator).last;
+      busy.setBusy('Loading ' + loadedImage);
     });
     ui.Image image = await loadImageFileNamed(filePath);
     loadUiImage(image);
@@ -277,8 +270,8 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
 
   Future<void> loadAssetImage(BuildContext context, String name) async {
     setState((){
-      loadingImage = true;
       loadedImage = name;
+      busy.setBusy('Loading ' + loadedImage);
     });
     ByteData bytes = await rootBundle.load("assets" + Platform.pathSeparator + name);
     ui.Image image = await loadImageFileBytes(bytes.buffer.asUint8List());
@@ -297,9 +290,10 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
   }
 
   void loadUiImage(ui.Image image) {
-    setState((){ loadingImage = false; });
-    photoducerState.reset();
     model().reset(image);
+    photoducerState.reset();
+    busy.reset();
+    setState((){});
   }
 
   Future<String> saveImage(BuildContext context) async {
@@ -331,6 +325,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
   }
 
   void generateImage(BuildContext context) async {
+    busy.setBusy('Generating');
     var loaded = await loadModel("contours2cats");
     if (!loaded) return;
 
@@ -345,7 +340,6 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     );
     debugPrint("Generated response: " + results[0]['filename']);
     ui.Image uploadedImage = await loadImageFileNamed(results[0]['filename']);
-    model().addRedraw(uploadedImage);
 
     /*
     img.Image oriImage = await imgFromImage(input);
@@ -363,11 +357,14 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
 
     img.Image genImage = imgFromFloat32List(binary.buffer.asFloat32List(), 256, 0.0, 255.0);
     ui.Image uploadedImage = await imageFromImg(genImage);
-    loadUiImage(uploadedImage);
     */
+
+    busy.reset();
+    model().addRedraw(uploadedImage);
   }
 
   Future<void> recognizeImage(BuildContext context) async {
+    busy.setBusy('Recognizing');
     var loaded = await loadModel("yolov2_tiny");
     if (!loaded) return;
 
@@ -394,6 +391,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     );
     */
 
+    busy.reset();
     photoducerState.setObjectRecognition(recognitions);
   }
 
