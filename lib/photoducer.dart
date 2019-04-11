@@ -68,12 +68,23 @@ class _Photoducer extends StatefulWidget {
 class _PhotoducerState extends State<_Photoducer> {
   int dragCount = 0;
 
-  PhotographTransducer model() { return widget.persistentCanvas.model; }
+  PhotographTransducer get model => widget.persistentCanvas.model;
 
   @override
   Widget build(BuildContext context) {
+    BusyModel busy = ScopedModel.of<BusyModel>(context, rebuildOnChange: true);
     return BusyModalBarrier(
-      model: ScopedModel.of<BusyModel>(context, rebuildOnChange: true),
+      model: busy,
+      progressIndicator: Center(
+        child: Container(
+          child: Column(
+            children: <Widget>[
+              CircularProgressIndicator(),
+              Text(busy.reason != null ? busy.reason : ''),
+            ],
+          ),
+        ),
+      ),
       child: Stack(
         children: <Widget>[
           buildGestureDetector(context, PersistentCanvasWidget(widget.persistentCanvas)),

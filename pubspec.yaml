@@ -29,6 +29,9 @@ dependencies:
   flutter_crashlytics:
     path: ./flutter_crashlytics
 
+  flutter_native_image:
+    git: https://github.com/btastic/flutter_native_image.git
+
   image: ^2.0.7
 
   image_picker_saver: 0.1.0
@@ -69,6 +72,8 @@ flutter:
   assets:
     - assets/dogandhorse.jpg
     - assets/shoeedges.png
+    - assets/edges2shoes.tflite
+    - assets/edges2shoes.txt
     - assets/contours2cats.tflite
     - assets/contours2cats.txt
     - assets/yolov2_tiny.tflite
