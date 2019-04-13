@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -7,10 +9,11 @@ import 'package:persistent_canvas/photograph_transducer.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:scoped_model/scoped_model.dart';
 
-enum PhotoducerTool { none, draw }
+enum PhotoducerTool { none, draw, selectBox }
 
 class PhotoducerModel extends Model {
   PhotoducerTool tool = PhotoducerTool.draw;
+  Rect selectBox;
   List objectRecognition;
 
   void setState(VoidCallback stateChangeCb) {
@@ -19,11 +22,25 @@ class PhotoducerModel extends Model {
   }
 
   void reset() {
-    setState((){ objectRecognition = null; });
+    setState((){
+      selectBox = null;
+      objectRecognition = null;
+    });
   }
 
   void setTool(PhotoducerTool x) {
-    setState((){ tool = x; });
+    setState((){
+      tool = x;
+      switch(tool) {
+        case PhotoducerTool.selectBox:
+          selectBox = null;
+          break;
+      }
+    });
+  }
+
+  void setSelectBox(Rect x) {
+    setState((){ selectBox = x; });
   }
 
   void setObjectRecognition(List x) {
@@ -39,13 +56,26 @@ class Photoducer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PhotoView.customChild(
-      child: ScopedModel<PhotoducerModel>(
-        model: state,
-        child: ScopedModelDescendant<PhotoducerModel>(
-          builder: (context, child, cart) => _Photoducer(state, persistentCanvas),
-        ),
+    return ScopedModel<PhotoducerModel>(
+      model: state,
+      child: ScopedModelDescendant<PhotoducerModel>(
+        builder: (context, child, cart) => PaintView(state, persistentCanvas),
       ),
+    );
+  }
+}
+
+class PaintView extends StatelessWidget {
+  final PhotoducerModel state;
+  final PersistentCanvas persistentCanvas;
+
+  PaintView(this.state, this.persistentCanvas);
+
+  @override
+  Widget build(BuildContext context) {
+    BusyModel busy = ScopedModel.of<BusyModel>(context, rebuildOnChange: true);
+    return PhotoView.customChild(
+      child: _PaintView(state, persistentCanvas),
       childSize: persistentCanvas.model.state.size,
       maxScale: PhotoViewComputedScale.covered * 2.0,
       minScale: PhotoViewComputedScale.contained * 0.8,
@@ -55,28 +85,35 @@ class Photoducer extends StatelessWidget {
   }
 }
 
-class _Photoducer extends StatefulWidget {
+class _PaintView extends StatefulWidget {
   final PhotoducerModel state;
   final PersistentCanvas persistentCanvas;
 
-  _Photoducer(this.state, this.persistentCanvas);
+  _PaintView(this.state, this.persistentCanvas);
 
   @override
-  _PhotoducerState createState() => _PhotoducerState();
+  _PaintViewState createState() => _PaintViewState();
 }
 
-class _PhotoducerState extends State<_Photoducer> {
+class _PaintViewState extends State<_PaintView> {
   int dragCount = 0;
 
   PhotographTransducer get model => widget.persistentCanvas.model;
 
   @override
   Widget build(BuildContext context) {
-    BusyModel busy = ScopedModel.of<BusyModel>(context, rebuildOnChange: true);
+    BusyModel busy = ScopedModel.of<BusyModel>(context);
+    List<Widget> stack = <Widget>[];
+    stack.add(buildGestureDetector(context, PersistentCanvasWidget(widget.persistentCanvas)));
+    stack.add(Stack(children: buildObjectRecognitionBoxes(context)));
+    if (widget.state.selectBox != null)
+      stack.add(buildSelectBox(context, widget.state.selectBox));
+
     return BusyModalBarrier(
       model: busy,
       progressIndicator: Center(
         child: Container(
+          height: 200,
           child: Column(
             children: <Widget>[
               CircularProgressIndicator(),
@@ -86,10 +123,7 @@ class _PhotoducerState extends State<_Photoducer> {
         ),
       ),
       child: Stack(
-        children: <Widget>[
-          buildGestureDetector(context, PersistentCanvasWidget(widget.persistentCanvas)),
-          Stack(children: buildObjectRecognitionBoxes(context)),
-        ],
+        children: stack,
       ),
     );
   }
@@ -97,22 +131,46 @@ class _PhotoducerState extends State<_Photoducer> {
   Widget buildGestureDetector(BuildContext context, Widget child) {
     switch (widget.state.tool) {
       case PhotoducerTool.draw:
-        return RawGestureDetector(
-          child: child,
-          behavior: HitTestBehavior.opaque,
-          gestures: <Type, GestureRecognizerFactory>{
-            ImmediateMultiDragGestureRecognizer: GestureRecognizerFactoryWithHandlers<ImmediateMultiDragGestureRecognizer>(
-              () => ImmediateMultiDragGestureRecognizer(),
-              (ImmediateMultiDragGestureRecognizer instance) {
-                instance..onStart = (Offset position) { return dragCount > 0 ? null : _DrawDragHandler(this, context); };
-              }
-            )
-          }
-        );
+        return buildDragRecognizer(child, (Offset position) { return dragCount > 0 ? null : _DrawDragHandler(this, context); });
+
+      case PhotoducerTool.selectBox:
+        return buildDragRecognizer(child, (Offset position) { return dragCount > 0 ? null : _SelectBoxDragHandler(this, context); });
 
       default:
         return child;
     }
+  }
+
+  Widget buildDragRecognizer(Widget child, GestureMultiDragStartCallback onStart) {
+    return RawGestureDetector(
+      child: child,
+      behavior: HitTestBehavior.opaque,
+      gestures: <Type, GestureRecognizerFactory>{
+        ImmediateMultiDragGestureRecognizer: GestureRecognizerFactoryWithHandlers<ImmediateMultiDragGestureRecognizer>(
+          () => ImmediateMultiDragGestureRecognizer(),
+          (ImmediateMultiDragGestureRecognizer instance) {
+            instance..onStart = onStart;
+          }
+        )
+      }
+    );
+  }
+
+  Widget buildSelectBox(BuildContext context, Rect box) {
+    return Positioned(
+      left:   box.left,
+      top:    box.top,
+      width:  box.width,
+      height: box.height,
+      child:  Container(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: Color.fromRGBO(37, 213, 253, 1.0),
+            width: 2,
+          ),
+        ),
+      ),
+    );
   }
 
   List<Widget> buildObjectRecognitionBoxes(BuildContext context) {
@@ -146,27 +204,15 @@ class _PhotoducerState extends State<_Photoducer> {
   }
 }
 
-class _DrawDragHandler extends Drag {
-  final _PhotoducerState parent;
+abstract class _DragHandler extends Drag {
+  final _PaintViewState parent;
   final BuildContext context;
-  Offset lastPoint;
 
-  _DrawDragHandler(this.parent, this.context) {
+  _DragHandler(this.parent, this.context) {
     parent.dragCount++;
   }
 
-  @override
-  void update(DragUpdateDetails update) {
-    RenderBox box = context.findRenderObject();
-    Offset point = box.globalToLocal(update.globalPosition);
-    if (point.dx >=0 && point.dy >= 0 && point.dx < box.size.width && point.dy < box.size.height) {
-      if (lastPoint == null) lastPoint = point;
-      if (lastPoint != point) {
-        parent.widget.persistentCanvas.drawLine(lastPoint, point, null);
-        lastPoint = point;
-      }
-    }
-  }
+  void dragUpdate(Offset point);
 
   @override
   void end(DragEndDetails details) {
@@ -174,5 +220,41 @@ class _DrawDragHandler extends Drag {
   }
 
   @override
+  void update(DragUpdateDetails update) {
+    RenderBox box = context.findRenderObject();
+    Offset point = box.globalToLocal(update.globalPosition);
+    if (point.dx >=0 && point.dy >= 0 && point.dx < box.size.width && point.dy < box.size.height) 
+      dragUpdate(point);
+  }
+
+  @override
   void cancel(){}
+}
+
+class _DrawDragHandler extends _DragHandler {
+  Offset lastPoint;
+
+  _DrawDragHandler(_PaintViewState parent, BuildContext context) : super(parent, context);
+
+  @override
+  void dragUpdate(Offset point) {
+    if (lastPoint == null) lastPoint = point;
+    if (lastPoint != point) {
+      parent.widget.persistentCanvas.drawLine(lastPoint, point, null);
+      lastPoint = point;
+    }
+  }
+}
+
+class _SelectBoxDragHandler extends _DragHandler {
+  Offset startPoint;
+
+  _SelectBoxDragHandler(_PaintViewState parent, BuildContext context) : super(parent, context);
+
+  @override
+  void dragUpdate(Offset point) {
+    if (startPoint == null) startPoint = point;
+    parent.widget.state.setSelectBox(Rect.fromLTRB(min(point.dx, startPoint.dx), min(point.dy, startPoint.dy),
+                                                   max(point.dx, startPoint.dx), max(point.dy, startPoint.dy)));
+  }
 }

@@ -63,6 +63,16 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
 
   @override
   Widget build(BuildContext context) {
+    List<Widget> column = <Widget>[];
+    column.add(
+      Expanded(
+        child: ClipRect(
+          child: Photoducer(photoducerState, persistentCanvas)
+        ),
+      ),
+    );
+    column.add(buildToolbar(context));
+
     return Scaffold(
       appBar: AppBar(
         title: Text(loadedImage != null ? loadedImage.split(Platform.pathSeparator).last : 'Photoducer'),
@@ -86,16 +96,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
         child: Container(
           decoration: BoxDecoration(color: Colors.blueGrey[50]),
           child: Column(
-            children: <Widget>[
-
-              Expanded(
-                child: ClipRect(
-                  child: Photoducer(photoducerState, persistentCanvas)
-                ),
-              ),
-
-              buildToolbar(context),
-            ],
+            children: column,
           ),
         ),
       ),
@@ -112,7 +113,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
           PopupMenuButton(
             icon: Icon(Icons.save),
             itemBuilder: (_) => <PopupMenuItem<String>>[
-              PopupMenuItem<String>(child: const Text('New'), value: 'new'), // Icons.refresh
+              PopupMenuItem<String>(child: Row(children: <Widget>[ Icon(Icons.refresh), Text('New') ]), value: 'new'), // Icons.refresh
               PopupMenuItem<String>(child: const Text('Save'), value: 'save'), // Icons.save
               PopupMenuItem<String>(child: const Text('Load'), value: 'load'), // Icons.open_in_browser
               PopupMenuItem<String>(child: const Text('Stock'), value: 'stock'),
@@ -130,6 +131,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
             itemBuilder: (_) => <PopupMenuItem<String>>[
               PopupMenuItem<String>(child: const Text('Hand'), value: 'hand'),
               PopupMenuItem<String>(child: const Text('Draw'), value: 'draw'), // Icons.brush
+              PopupMenuItem<String>(child: const Text('Select Box'), value: 'selectBox'), // Icons.brush
             ],
             onSelected: (String v) {
               switch (v) {
@@ -139,6 +141,10 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
 
                 case 'draw':
                   photoducerState.setTool(PhotoducerTool.draw);
+                  break;
+
+                case 'selectBox':
+                  photoducerState.setTool(PhotoducerTool.selectBox);
                   break;
               }
             }
@@ -177,6 +183,23 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
                     ],
                   ),
                 );
+              }
+            }
+          ),
+
+          PopupMenuButton(
+            icon: Icon(Icons.crop_free),
+            itemBuilder: (_) => <PopupMenuItem<String>>[
+              PopupMenuItem<String>(child: const Text('Cut'), value: 'cut'),
+              PopupMenuItem<String>(child: const Text('Crop'), value: 'crop'),
+              PopupMenuItem<String>(child: const Text('Fill'), value: 'fill'),
+            ],
+            onSelected: (String v) {
+              if (photoducerState.selectBox == null) return;
+              switch (v) {
+                case 'crop':
+                  model.addCrop(photoducerState.selectBox);
+                  break;
               }
             }
           ),
