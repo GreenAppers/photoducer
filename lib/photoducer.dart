@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:busy_model/busy_model.dart';
 import 'package:persistent_canvas/persistent_canvas.dart';
 import 'package:persistent_canvas/photograph_transducer.dart';
+import 'package:persistent_canvas/pixel_buffer.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:scoped_model/scoped_model.dart';
 
@@ -15,6 +16,7 @@ class PhotoducerModel extends Model {
   PhotoducerTool tool = PhotoducerTool.draw;
   Rect selectBox;
   List objectRecognition;
+  int layerIndex;
 
   void setState(VoidCallback stateChangeCb) {
     stateChangeCb();
@@ -48,18 +50,47 @@ class PhotoducerModel extends Model {
   }
 }
 
-class Photoducer extends StatelessWidget {
+class PhotoducerScope extends StatelessWidget {
   final PhotoducerModel state;
-  final PersistentCanvas persistentCanvas;
+  final Widget child;
 
-  Photoducer(this.state, this.persistentCanvas);
+  PhotoducerScope({this.state, this.child});
 
   @override
   Widget build(BuildContext context) {
     return ScopedModel<PhotoducerModel>(
       model: state,
-      child: ScopedModelDescendant<PhotoducerModel>(
-        builder: (context, child, cart) => PaintView(state, persistentCanvas),
+      child: child,
+    );
+  }
+}
+
+class LayersView extends StatelessWidget {
+  final PhotoducerModel state;
+  final PersistentCanvasLayers layers;
+
+  LayersView(this.state, this.layers);
+
+  @override
+  Widget build(BuildContext context) {
+    List<Widget> list = <Widget>[];
+    for (var layer in layers.layer)
+      list.add(
+        Card(
+          child: Image(
+            image: PixelBufferImageProvider(layer.model.state),
+          ),
+        ),
+      );
+
+    return Container(
+      height: 100,
+      decoration: BoxDecoration(color: Colors.blueGrey[140]),
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.all(10.0),
+        scrollDirection: Axis.horizontal,
+        children: list
       ),
     );
   }
@@ -67,16 +98,16 @@ class Photoducer extends StatelessWidget {
 
 class PaintView extends StatelessWidget {
   final PhotoducerModel state;
-  final PersistentCanvas persistentCanvas;
+  final PersistentCanvasLayers layers;
 
-  PaintView(this.state, this.persistentCanvas);
+  PaintView(this.state, this.layers);
 
   @override
   Widget build(BuildContext context) {
     BusyModel busy = ScopedModel.of<BusyModel>(context, rebuildOnChange: true);
     return PhotoView.customChild(
-      child: _PaintView(state, persistentCanvas),
-      childSize: persistentCanvas.model.state.size,
+      child: _PaintView(state, layers),
+      childSize: layers.canvas.model.state.size,
       maxScale: PhotoViewComputedScale.covered * 2.0,
       minScale: PhotoViewComputedScale.contained * 0.8,
       initialScale: PhotoViewComputedScale.covered,
@@ -87,9 +118,9 @@ class PaintView extends StatelessWidget {
 
 class _PaintView extends StatefulWidget {
   final PhotoducerModel state;
-  final PersistentCanvas persistentCanvas;
+  final PersistentCanvasLayers layers;
 
-  _PaintView(this.state, this.persistentCanvas);
+  _PaintView(this.state, this.layers);
 
   @override
   _PaintViewState createState() => _PaintViewState();
@@ -98,13 +129,18 @@ class _PaintView extends StatefulWidget {
 class _PaintViewState extends State<_PaintView> {
   int dragCount = 0;
 
-  PhotographTransducer get model => widget.persistentCanvas.model;
+  PhotographTransducer get model => widget.layers.canvas.model;
 
   @override
   Widget build(BuildContext context) {
+    ScopedModel.of<PhotoducerModel>(context, rebuildOnChange: true);
     BusyModel busy = ScopedModel.of<BusyModel>(context);
     List<Widget> stack = <Widget>[];
-    stack.add(buildGestureDetector(context, PersistentCanvasWidget(widget.persistentCanvas)));
+    if (widget.state.layerIndex == null) {
+      stack.add(buildGestureDetector(context, PersistentCanvasLayersWidget(widget.layers)));
+    } else {
+      stack.add(buildGestureDetector(context, PersistentCanvasWidget(widget.layers.layer[widget.state.layerIndex])));
+    }
     stack.add(Stack(children: buildObjectRecognitionBoxes(context)));
     if (widget.state.selectBox != null)
       stack.add(buildSelectBox(context, widget.state.selectBox));
@@ -240,7 +276,7 @@ class _DrawDragHandler extends _DragHandler {
   void dragUpdate(Offset point) {
     if (lastPoint == null) lastPoint = point;
     if (lastPoint != point) {
-      parent.widget.persistentCanvas.drawLine(lastPoint, point, null);
+      parent.widget.layers.canvas.drawLine(lastPoint, point, null);
       lastPoint = point;
     }
   }

@@ -54,12 +54,13 @@ class PhotoducerApp extends StatefulWidget {
 }
 
 class _PhotoducerAppState extends State<PhotoducerApp> {
-  final PersistentCanvas persistentCanvas = PersistentCanvas(busy: BusyModel());
+  final PersistentCanvasLayers layers = PersistentCanvasLayers(busy: BusyModel());
   final PhotoducerModel photoducerState = PhotoducerModel();
+  bool showLayersView = false, showToolbar = true;
   String loadedImage, loadedModel;
   Size loadedImageSize, scaledImageSize;
 
-  PhotographTransducer get model => persistentCanvas.model;
+  PhotographTransducer get model => layers.canvas.model;
 
   @override
   Widget build(BuildContext context) {
@@ -67,11 +68,14 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     column.add(
       Expanded(
         child: ClipRect(
-          child: Photoducer(photoducerState, persistentCanvas)
+          child: PaintView(photoducerState, layers)
         ),
       ),
     );
-    column.add(buildToolbar(context));
+    if (showLayersView) 
+      column.add(LayersView(photoducerState, layers));
+    if (showToolbar) 
+      column.add(buildToolbar(context));
 
     return Scaffold(
       appBar: AppBar(
@@ -80,23 +84,37 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
           IconButton(
             icon: new Icon(Icons.undo),
             tooltip: 'Undo',
-            onPressed: () { model.walkVersion(-1); }
+            onPressed: () { model.walkVersion(-1); photoducerState.reset(); }
           ),
 
           IconButton(
             icon: new Icon(Icons.redo),
             tooltip: 'Redo',
-            onPressed: () { model.walkVersion(1); }
+            onPressed: () { model.walkVersion(1); photoducerState.reset(); }
           ),
+
+          (PopupMenuBuilder(icon: Icon(Icons.menu))
+            ..addItem(
+              icon: Icon(showLayersView ? Icons.check_box : Icons.check_box_outline_blank),
+              text: 'Layers', onSelected: (){ setState((){ showLayersView = !showLayersView; }); }
+            )
+            ..addItem(
+              icon: Icon(showToolbar ? Icons.check_box : Icons.check_box_outline_blank),
+              text: 'Toolbar', onSelected: (){ setState((){ showToolbar = !showToolbar; }); }
+            )
+          ).build(),
         ],
       ),
 
       body: BusyScope(
         model: model.busy,
-        child: Container(
-          decoration: BoxDecoration(color: Colors.blueGrey[50]),
-          child: Column(
-            children: column,
+        child: PhotoducerScope(
+          state: photoducerState,
+          child: Container(
+            decoration: BoxDecoration(color: Colors.blueGrey[50]),
+            child: Column(
+              children: column,
+            ),
           ),
         ),
       ),
@@ -104,179 +122,94 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
   }
 
   Widget buildToolbar(BuildContext c) {
+    List<Widget> toolbar = <Widget>[
+      (PopupMenuBuilder(icon: Icon(Icons.save))
+        ..addItem(icon: Icon(Icons.refresh),         text: 'New',   onSelected: (){ newImage(context); })
+        ..addItem(icon: Icon(Icons.save),            text: 'Save',  onSelected: (){ saveImage(context); })
+        ..addItem(icon: Icon(Icons.open_in_browser), text: 'Load',  onSelected: (){ loadImage(context); })
+        ..addItem(                                   text: 'Stock', onSelected: (){ loadAssetImage(context, 'dogandhorse.jpg'); })
+      ).build(),
+
+      (PopupMenuBuilder(icon: Icon(Icons.build))
+        ..addItem(text: 'Hand',       onSelected: (){ photoducerState.setTool(PhotoducerTool.none); })
+        ..addItem(text: 'Draw',       onSelected: (){ photoducerState.setTool(PhotoducerTool.draw); })
+        ..addItem(text: 'Select Box', onSelected: (){ photoducerState.setTool(PhotoducerTool.selectBox); })
+      ).build(),
+
+      (PopupMenuBuilder(icon: Icon(Icons.category))
+        ..addItem(text: 'Color', onSelected: pickColor)
+        ..addItem(text: 'Font')
+        ..addItem(text: 'Brush')
+      ).build(),
+
+      (PopupMenuBuilder(icon: Icon(Icons.crop_free))
+        ..addItem(text: 'Cut')
+        ..addItem(text: 'Crop', onSelected: (){ model.addCrop(photoducerState.selectBox); })
+        ..addItem(text: 'Fill')
+      ).build(),
+
+      (PopupMenuBuilder(icon: Icon(Icons.border_clear))
+        ..addItem(text: 'Blur',        onSelected: (){ model.addDownloadedTransform((img.Image x) => img.gaussianBlur(x, 10)); })
+        ..addItem(text: 'Edge detect', onSelected: (){ model.addDownloadedTransform((img.Image x) => img.sobel(x)); })
+        ..addItem(text: 'Emboss',      onSelected: (){ model.addDownloadedTransform((img.Image x) => img.emboss(x)); })
+        ..addItem(text: 'Vignette',    onSelected: (){ model.addDownloadedTransform((img.Image x) => img.vignette(x)); })
+        ..addItem(text: 'Sepia',       onSelected: (){ model.addDownloadedTransform((img.Image x) => img.sepia(x)); })
+        ..addItem(text: 'Grayscale',   onSelected: (){ model.addDownloadedTransform((img.Image x) => img.grayscale(x)); })
+      ).build(),
+
+      (PopupMenuBuilder(icon: Icon(Icons.art_track))
+        ..addItem(icon: Icon(Icons.art_track), text: 'Recognize',     onSelected: (){ recognizeImage(context); })
+        ..addItem(icon: Icon(Icons.toys),      text: 'Generate Cat',  onSelected: (){ generateImage(context, 'contours2cats'); })
+        ..addItem(icon: Icon(Icons.toys),      text: 'Generate Shoe', onSelected: (){ generateImage(context, 'edges2shoes'); })
+      ).build(),
+
+      (PopupMenuBuilder(icon: Icon(Icons.settings))
+        ..addItem(text: 'repaint',    onSelected: (){ model.updateUploadedStateMethod = model.updateUploadedStateRepaint; })
+        ..addItem(text: 'paintDelta', onSelected: (){ model.updateUploadedStateMethod = model.updateUploadedStatePaintDelta; })
+      ).build(),
+
+      (PopupMenuBuilder(icon: Icon(Icons.share))
+        ..addItem(text: 'Twitter')
+        ..addItem(text: 'Facebook')
+      ).build(),
+    ];
+
     return Container(
       height: 100,
-      decoration: BoxDecoration(color: Colors.blueGrey[100]),
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: <Widget>[
-          PopupMenuButton(
-            icon: Icon(Icons.save),
-            itemBuilder: (_) => <PopupMenuItem<String>>[
-              PopupMenuItem<String>(child: Row(children: <Widget>[ Icon(Icons.refresh), Text('New') ]), value: 'new'), // Icons.refresh
-              PopupMenuItem<String>(child: const Text('Save'), value: 'save'), // Icons.save
-              PopupMenuItem<String>(child: const Text('Load'), value: 'load'), // Icons.open_in_browser
-              PopupMenuItem<String>(child: const Text('Stock'), value: 'stock'),
-            ],
-            onSelected: (String v) {
-              if      (v == 'new') newImage(context);
-              else if (v == 'save') saveImage(context);
-              else if (v == 'load') loadImage(context);
-              else if (v == 'stock') loadAssetImage(context, 'dogandhorse.jpg');
-            }
+      child: Card(
+        color: Colors.blueGrey[100],
+        child: Center(
+          child: ListView(
+            shrinkWrap: true,
+            scrollDirection: Axis.horizontal,
+            children: toolbar,
           ),
+        ),
+      ),
+    );
+  }
 
-          PopupMenuButton(
-            icon: Icon(Icons.build),
-            itemBuilder: (_) => <PopupMenuItem<String>>[
-              PopupMenuItem<String>(child: const Text('Hand'), value: 'hand'),
-              PopupMenuItem<String>(child: const Text('Draw'), value: 'draw'), // Icons.brush
-              PopupMenuItem<String>(child: const Text('Select Box'), value: 'selectBox'), // Icons.brush
-            ],
-            onSelected: (String v) {
-              switch (v) {
-                case 'hand':
-                  photoducerState.setTool(PhotoducerTool.none);
-                  break;
-
-                case 'draw':
-                  photoducerState.setTool(PhotoducerTool.draw);
-                  break;
-
-                case 'selectBox':
-                  photoducerState.setTool(PhotoducerTool.selectBox);
-                  break;
-              }
-            }
+  void pickColor() {
+    Color pickerColor = model.orthogonalState.paint.color;
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Pick a color!'),
+        content: SingleChildScrollView(
+          child: ColorPicker(
+            pickerColor: pickerColor,
+            onColorChanged: (Color x) { pickerColor = x; },
+            enableLabel: true,
+            pickerAreaHeightPercent: 0.8,
           ),
-
-          PopupMenuButton(
-            icon: Icon(Icons.category),
-            itemBuilder: (_) => <PopupMenuItem<String>>[
-              PopupMenuItem<String>(child: const Text('Color'), value: 'color'),
-              PopupMenuItem<String>(child: const Text('Font'), value: 'font'),
-              PopupMenuItem<String>(child: const Text('Brush'), value: 'brush'),
-            ],
-            onSelected: (String v) {
-              if (v == 'color') {
-                Color pickerColor = model.orthogonalState.paint.color;
-                showDialog(
-                  context: context,
-                  builder: (_) => AlertDialog(
-                    title: const Text('Pick a color!'),
-                    content: SingleChildScrollView(
-                      child: ColorPicker(
-                        pickerColor: pickerColor,
-                        onColorChanged: (Color x) { pickerColor = x; },
-                        enableLabel: true,
-                        pickerAreaHeightPercent: 0.8,
-                      ),
-                    ),
-                    actions: <Widget>[
-                      FlatButton(
-                        child: const Text('Got it'),
-                        onPressed: () {
-                          model.changeColor(pickerColor);
-                          Navigator.of(context).pop();
-                        },
-                      ),
-                    ],
-                  ),
-                );
-              }
-            }
-          ),
-
-          PopupMenuButton(
-            icon: Icon(Icons.crop_free),
-            itemBuilder: (_) => <PopupMenuItem<String>>[
-              PopupMenuItem<String>(child: const Text('Cut'), value: 'cut'),
-              PopupMenuItem<String>(child: const Text('Crop'), value: 'crop'),
-              PopupMenuItem<String>(child: const Text('Fill'), value: 'fill'),
-            ],
-            onSelected: (String v) {
-              if (photoducerState.selectBox == null) return;
-              switch (v) {
-                case 'crop':
-                  model.addCrop(photoducerState.selectBox);
-                  break;
-              }
-            }
-          ),
-
-          PopupMenuButton(
-            icon: Icon(Icons.border_clear),
-            itemBuilder: (_) => <PopupMenuItem<String>>[
-              PopupMenuItem<String>(child: const Text('Blur'),        value: 'blur'),
-              PopupMenuItem<String>(child: const Text('Edge detect'), value: 'edgeDetect'),
-              PopupMenuItem<String>(child: const Text('Emboss'),      value: 'emboss'),
-              PopupMenuItem<String>(child: const Text('Vignette'),    value: 'vignette'),
-              PopupMenuItem<String>(child: const Text('Sepia'),       value: 'sepia'),
-              PopupMenuItem<String>(child: const Text('Grayscale'),   value: 'grayscale'),
-            ],
-            onSelected: (String v) {
-              switch (v) {
-                case 'blur':
-                  model.addDownloadedTransform((img.Image x) => img.gaussianBlur(x, 10));
-                  break;
-
-                case 'edgeDetect':
-                  model.addDownloadedTransform((img.Image x) => img.sobel(x));
-                  break;
-
-                case 'emboss':
-                  model.addDownloadedTransform((img.Image x) => img.emboss(x));
-                  break;
-
-                case 'vignette':
-                  model.addDownloadedTransform((img.Image x) => img.vignette(x));
-                  break;
-
-                case 'sepia':
-                  model.addDownloadedTransform((img.Image x) => img.sepia(x));
-                  break;
-
-                case 'grayscale':
-                  model.addDownloadedTransform((img.Image x) => img.grayscale(x));
-                  break;
-              }
-            }
-          ),
-
-          PopupMenuButton(
-            icon: Icon(Icons.art_track),
-            itemBuilder: (_) => <PopupMenuItem<String>>[
-              PopupMenuItem<String>(child: const Text('Recognize'), value: 'recognize'), // Icons.art_track
-              PopupMenuItem<String>(child: const Text('Generate Cat'), value: 'generate_cat'), // Icons.toys
-              PopupMenuItem<String>(child: const Text('Generate Shoe'), value: 'generate_shoe'), // Icons.toys
-            ],
-            onSelected: (String v) {
-              if (v == 'recognize') recognizeImage(context);
-              if (v == 'generate_cat') generateImage(context, 'contours2cats');
-              if (v == 'generate_shoe') generateImage(context, 'edges2shoes');
-            }
-          ),
-
-          PopupMenuButton(
-            icon: Icon(Icons.settings),
-            itemBuilder: (_) => <PopupMenuItem<String>>[
-              PopupMenuItem<String>(child: const Text('repaint'),    value: 'repaint'),
-              PopupMenuItem<String>(child: const Text('paintDelta'), value: 'paintDelta'),
-            ],
-            onSelected: (String v) {
-              if (v == 'repaint')    model.updateUploadedStateMethod = model.updateUploadedStateRepaint;
-              if (v == 'paintDelta') model.updateUploadedStateMethod = model.updateUploadedStatePaintDelta;
-            }
-          ),
-
-          PopupMenuButton(
-            icon: Icon(Icons.share),
-            itemBuilder: (_) => <PopupMenuItem<String>>[
-              PopupMenuItem<String>(child: const Text('Twitter'),  value: 'twitter'),
-              PopupMenuItem<String>(child: const Text('Facebook'), value: 'facebook'),
-            ],
-            onSelected: (String v) {
-            }
+        ),
+        actions: <Widget>[
+          FlatButton(
+            child: const Text('Got it'),
+            onPressed: () {
+              model.changeColor(pickerColor);
+              Navigator.of(context).pop();
+            },
           ),
         ],
       ),
@@ -402,24 +335,6 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     );
     ui.Image uploadedImage = await loadImageFileBytes(result);
 
-    /*
-    img.Image oriImage = await imgFromImage(input);
-    img.Image resizedImage = oriImage;
-    if (oriImage.width != 256 || oriImage.height != 256)
-      resizedImage = img.copyResize(oriImage, 256, 256);
-    
-    Float32List floats = imgToFloat32List(resizedImage, 256, 0.0, 255.0);
-    var result = await Tflite.runPix2PixOnBinary(
-      binary: floats.buffer.asUint8List(),
-    );
-
-    // Otherwise bug where x.asUint8List() == y.asUint8List() but x.asFloat32List() != y.asFloat32List()
-    var binary = Uint8List.fromList(result); 
-    
-    img.Image genImage = imgFromFloat32List(binary.buffer.asFloat32List(), 256, 0.0, 255.0);
-    ui.Image uploadedImage = await imageFromImg(genImage);
-    */
-
     model.busy.reset();
     model.addRedraw(uploadedImage);
   }
@@ -461,3 +376,51 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     }
   }
 }
+
+class PopupMenuBuilder {
+  final Icon icon;
+  int nextIndex = 0;
+  List<PopupMenuItem<int>> item = <PopupMenuItem<int>>[];
+  List<VoidCallback> onSelectedCallback = <VoidCallback>[];
+
+  PopupMenuBuilder({this.icon});
+
+  PopupMenuBuilder addItem({Icon icon, String text, VoidCallback onSelected}) {
+    onSelectedCallback.add(onSelected);
+    if (icon != null) {
+      item.add(
+        PopupMenuItem<int>(
+          child: Row(
+            children: <Widget>[
+              Container(
+                padding: const EdgeInsets.all(8.0),
+                child: icon
+              ),
+              Container(
+                padding: const EdgeInsets.all(10.0),
+                child: Text(text),
+              ),
+            ],
+          ),
+          value: nextIndex++
+        )
+      );
+    } else {
+      item.add(
+        PopupMenuItem<int>(
+          child: Text(text),
+          value: nextIndex++
+        )
+      );
+    }
+    return this;
+  }
+
+  Widget build() {
+    return PopupMenuButton(
+      icon: icon,
+      itemBuilder: (_) => item,
+      onSelected: (int v) { onSelectedCallback[v](); }
+    );
+  }
+} 
