@@ -17,6 +17,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:persistent_canvas/pixel_buffer.dart';
 import 'package:persistent_canvas/persistent_canvas.dart';
 import 'package:persistent_canvas/photograph_transducer.dart';
+import 'package:potrace/potrace.dart';
 import 'package:tflite/tflite.dart';
 
 import 'package:photoducer/photoducer.dart';
@@ -61,6 +62,8 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
   Size loadedImageSize, scaledImageSize;
 
   PhotographTransducer get model => layers.canvas.model;
+
+  String assetPath(String name) => 'assets' + Platform.pathSeparator + name;
 
   @override
   Widget build(BuildContext context) {
@@ -124,28 +127,33 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
   Widget buildToolbar(BuildContext c) {
     List<Widget> toolbar = <Widget>[
       (PopupMenuBuilder(icon: Icon(Icons.save))
-        ..addItem(icon: Icon(Icons.refresh),         text: 'New',   onSelected: (){ newImage(context); })
-        ..addItem(icon: Icon(Icons.save),            text: 'Save',  onSelected: (){ saveImage(context); })
-        ..addItem(icon: Icon(Icons.open_in_browser), text: 'Load',  onSelected: (){ loadImage(context); })
-        ..addItem(                                   text: 'Stock', onSelected: (){ loadAssetImage(context, 'dogandhorse.jpg'); })
+        ..addItem(icon: Icon(Icons.refresh),         text: 'New',    onSelected: newImage)
+        ..addItem(icon: Icon(Icons.save),            text: 'Save',   onSelected: saveImage)
+        ..addItem(icon: Icon(Icons.screen_share),    text: 'Export', onSelected: exportSVG)
+        ..addItem(icon: Icon(Icons.open_in_browser), text: 'Load',   onSelected: loadImage)
+        ..addItem(icon: Icon(Icons.photo_library),   text: 'Stock',  onSelected: pickStockImage)
       ).build(),
 
       (PopupMenuBuilder(icon: Icon(Icons.build))
-        ..addItem(text: 'Hand',       onSelected: (){ photoducerState.setTool(PhotoducerTool.none); })
-        ..addItem(text: 'Draw',       onSelected: (){ photoducerState.setTool(PhotoducerTool.draw); })
-        ..addItem(text: 'Select Box', onSelected: (){ photoducerState.setTool(PhotoducerTool.selectBox); })
+        ..addItem(icon: Icon(Icons.pan_tool),          text: 'Hand',         onSelected: (){ photoducerState.setTool(PhotoducerTool.none); })
+        ..addItem(icon: Icon(Icons.edit),              text: 'Draw',         onSelected: (){ photoducerState.setTool(PhotoducerTool.draw); })
+        ..addItem(icon: Icon(Icons.crop_free),         text: 'Select Box',   onSelected: (){ photoducerState.setTool(PhotoducerTool.selectBox); })
+        ..addItem(icon: Icon(Icons.highlight),         text: 'Select Wand',  onSelected: (){ photoducerState.setTool(PhotoducerTool.selectFlood); })
+        ..addItem(icon: Icon(Icons.colorize),          text: 'Sample Color', onSelected: (){ photoducerState.setTool(PhotoducerTool.selectBox); })
+        ..addItem(icon: Icon(Icons.format_color_fill), text: 'Fill',         onSelected: (){ photoducerState.setTool(PhotoducerTool.fillFlood); })
       ).build(),
 
       (PopupMenuBuilder(icon: Icon(Icons.category))
-        ..addItem(text: 'Color', onSelected: pickColor)
-        ..addItem(text: 'Font')
-        ..addItem(text: 'Brush')
+        ..addItem(icon: Icon(Icons.palette),           text: 'Color', onSelected: pickColor)
+        ..addItem(icon: Icon(Icons.format_color_text), text: 'Font')
+        ..addItem(icon: Icon(Icons.brush),             text: 'Brush')
+        ..addItem(icon: Icon(Icons.gradient),          text: 'Gradient')
       ).build(),
 
       (PopupMenuBuilder(icon: Icon(Icons.crop_free))
-        ..addItem(text: 'Cut')
-        ..addItem(text: 'Crop', onSelected: (){ model.addCrop(photoducerState.selectBox); })
-        ..addItem(text: 'Fill')
+        ..addItem(icon: Icon(Icons.remove_from_queue), text: 'Cut')
+        ..addItem(icon: Icon(Icons.crop),              text: 'Crop', onSelected: (){ model.addCrop(photoducerState.selectBox); })
+        ..addItem(icon: Icon(Icons.format_color_fill), text: 'Fill')
       ).build(),
 
       (PopupMenuBuilder(icon: Icon(Icons.border_clear))
@@ -158,9 +166,9 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
       ).build(),
 
       (PopupMenuBuilder(icon: Icon(Icons.art_track))
-        ..addItem(icon: Icon(Icons.art_track), text: 'Recognize',     onSelected: (){ recognizeImage(context); })
-        ..addItem(icon: Icon(Icons.toys),      text: 'Generate Cat',  onSelected: (){ generateImage(context, 'contours2cats'); })
-        ..addItem(icon: Icon(Icons.toys),      text: 'Generate Shoe', onSelected: (){ generateImage(context, 'edges2shoes'); })
+        ..addItem(icon: Icon(Icons.art_track),      text: 'Recognize',     onSelected: recognizeImage)
+        ..addItem(icon: Icon(Icons.filter_vintage), text: 'Generate Cat',  onSelected: (){ generateImage('contours2cats'); })
+        ..addItem(icon: Icon(Icons.toys),           text: 'Generate Shoe', onSelected: (){ generateImage('edges2shoes'); })
       ).build(),
 
       (PopupMenuBuilder(icon: Icon(Icons.settings))
@@ -189,12 +197,43 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     );
   }
 
+  void pickStockImage() {
+    List<String> stockImages = const <String> [ 'dogandhorse.jpg', 'shoeedges.png', 'catcontours.png' ];
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Select an image'),
+        content: Container(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            scrollDirection: Axis.vertical,
+            itemCount: stockImages.length,
+            itemBuilder: (BuildContext context, int index) => GestureDetector(
+              child: Image(image: AssetImage(assetPath(stockImages[index]))),
+              onTap: (){
+                Navigator.of(context).pop();
+                loadAssetImage(stockImages[index]);
+              },
+            ),
+          ),
+        ),
+        actions: <Widget>[
+          FlatButton(
+            child: const Text('Cancel'),
+            onPressed: () { Navigator.of(context).pop(); },
+          ),
+        ],
+      ),
+    );
+  }
+
   void pickColor() {
     Color pickerColor = model.orthogonalState.paint.color;
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Pick a color!'),
+        title: const Text('Pick a color'),
         content: SingleChildScrollView(
           child: ColorPicker(
             pickerColor: pickerColor,
@@ -205,7 +244,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
         ),
         actions: <Widget>[
           FlatButton(
-            child: const Text('Got it'),
+            child: const Text('Done'),
             onPressed: () {
               model.changeColor(pickerColor);
               Navigator.of(context).pop();
@@ -218,13 +257,13 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
 
   Future<void> voidResult() async {}
 
-  Future<void> newImage(BuildContext context) async {
+  Future<void> newImage() async {
     scaledImageSize = null;
     loadedImage = null;
     loadUiImage(null);
   }
 
-  Future<void> loadImage(BuildContext context) async {
+  Future<void> loadImage() async {
     String filePath = await FilePicker.getFilePath(type: FileType.IMAGE);
     if (filePath == '') return voidResult();
     setState((){
@@ -236,13 +275,13 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     loadUiImage(image);
   }
 
-  Future<void> loadAssetImage(BuildContext context, String name) async {
+  Future<void> loadAssetImage(String name) async {
     setState((){
       loadedImage = name;
       scaledImageSize = null;
       model.busy.setBusy('Loading ' + loadedImage);
     });
-    ByteData bytes = await rootBundle.load("assets" + Platform.pathSeparator + name);
+    ByteData bytes = await rootBundle.load(assetPath(name));
     ui.Image image = await loadImageFileBytes(bytes.buffer.asUint8List());
     loadUiImage(image);
   }
@@ -281,7 +320,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     setState((){});
   }
 
-  Future<String> saveImage(BuildContext context) async {
+  Future<String> saveImage() async {
     ui.Image image = model.state.uploaded;
     if (scaledImageSize != null) {
       model.busy.setBusy('Rendering at full resolution');
@@ -297,10 +336,21 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     return filename;
   }
 
-  Future<String> stashImagePath(String name) async {
-    Directory directory = await getApplicationDocumentsDirectory();
-    return directory.path + Platform.pathSeparator + name + ".png";
+  Future<String> exportSVG() async {
+    img.Image downloaded = await model.state.getDownloadedImage();
+    String svg = potrace(downloaded);
+    String path = await stashPath('export.svg');
+    debugPrint('exportSVG: ' + path);
+    await File(path).writeAsString(svg);
+    return path;
   }
+
+  Future<String> stashPath(String name) async {
+    Directory directory = await getApplicationDocumentsDirectory();
+    return directory.path + Platform.pathSeparator + name;
+  }
+
+  Future<String> stashImagePath(String name) async => stashPath(name + '.png');
 
   Future<String> stashImage(ui.Image image, String name) async {
     var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
@@ -309,17 +359,17 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     return path;
   }
 
-  Future<String> stashRenderedImage(BuildContext context, String name) async {
+  Future<String> stashRenderedImage(String name) async {
     ui.Image image = model.state.uploaded;
     return stashImage(image, name);
   }
 
-  Future<ui.Image> unstashImage(BuildContext context, String name) async {
+  Future<ui.Image> unstashImage(String name) async {
     String filePath = await stashImagePath(name);
     return loadImageFileNamed(filePath);
   }
 
-  void generateImage(BuildContext context, String modelName) async {
+  void generateImage(String modelName) async {
     model.busy.setBusy('Generating');
     var loaded = await loadModel(modelName);
     if (!loaded) return;
@@ -339,7 +389,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     model.addRedraw(uploadedImage);
   }
 
-  Future<void> recognizeImage(BuildContext context) async {
+  Future<void> recognizeImage() async {
     model.busy.setBusy('Recognizing');
     var loaded = await loadModel("yolov2_tiny");
     if (!loaded) return;
@@ -364,8 +414,8 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     try {
       String res;
       res = await Tflite.loadModel(
-        model:  "assets" + Platform.pathSeparator + name + ".tflite",
-        labels: "assets" + Platform.pathSeparator + name + ".txt",
+        model:  assetPath(name + '.tflite'),
+        labels: assetPath(name + '.txt'),
       );
       loadedModel = name;
       debugPrint('loadModel: ' + res);

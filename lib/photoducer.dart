@@ -1,20 +1,26 @@
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import 'package:busy_model/busy_model.dart';
+import 'package:image/image.dart' as img;
 import 'package:persistent_canvas/persistent_canvas.dart';
 import 'package:persistent_canvas/photograph_transducer.dart';
 import 'package:persistent_canvas/pixel_buffer.dart';
 import 'package:photo_view/photo_view.dart';
+import 'package:potrace/potrace.dart';
 import 'package:scoped_model/scoped_model.dart';
 
-enum PhotoducerTool { none, draw, selectBox }
+typedef OffsetCallback = void Function(Offset);
+
+enum PhotoducerTool { none, draw, selectBox, selectFlood, fillFlood }
 
 class PhotoducerModel extends Model {
   PhotoducerTool tool = PhotoducerTool.draw;
   Rect selectBox;
+  Path selectFlood;
   List objectRecognition;
   int layerIndex;
 
@@ -26,6 +32,7 @@ class PhotoducerModel extends Model {
   void reset() {
     setState((){
       selectBox = null;
+      selectFlood = null;
       objectRecognition = null;
     });
   }
@@ -35,7 +42,9 @@ class PhotoducerModel extends Model {
       tool = x;
       switch(tool) {
         case PhotoducerTool.selectBox:
+        case PhotoducerTool.selectFlood:
           selectBox = null;
+          selectFlood = null;
           break;
       }
     });
@@ -43,6 +52,10 @@ class PhotoducerModel extends Model {
 
   void setSelectBox(Rect x) {
     setState((){ selectBox = x; });
+  }
+
+  void setSelectFlood(Path x) {
+    setState((){ selectFlood = x; });
   }
 
   void setObjectRecognition(List x) {
@@ -144,6 +157,8 @@ class _PaintViewState extends State<_PaintView> {
     stack.add(Stack(children: buildObjectRecognitionBoxes(context)));
     if (widget.state.selectBox != null)
       stack.add(buildSelectBox(context, widget.state.selectBox));
+    if (widget.state.selectFlood != null)
+      stack.add(buildSelectFlood(context, widget.state.selectFlood));
 
     return BusyModalBarrier(
       model: busy,
@@ -172,6 +187,28 @@ class _PaintViewState extends State<_PaintView> {
       case PhotoducerTool.selectBox:
         return buildDragRecognizer(child, (Offset position) { return dragCount > 0 ? null : _SelectBoxDragHandler(this, context); });
 
+      case PhotoducerTool.selectFlood:
+        return _TapHandler(context, child,
+          onTapped: (Offset point) async {
+            model.busy.setBusy('Selecting');
+            img.Image downloaded = await model.state.getDownloadedImage();
+            Uint8List mask = img.maskFlood(downloaded, point.dx.round(), point.dy.round(),
+                                           threshold: 20, compareAlpha: true, fillValue: 1);
+            Path path = potraceMask(mask, downloaded.width, downloaded.height);
+            model.busy.reset();
+            widget.state.setSelectFlood(path);
+          },
+        );
+
+      case PhotoducerTool.fillFlood:
+        return _TapHandler(context, child,
+          onTapped: (Offset point) {
+            int color = imgColorFromColor(model.orthogonalState.paint.color);
+            model.addDownloadedTransform((img.Image x) => img.fillFlood(x, point.dx.round(), point.dy.round(), color,
+                                                                        threshold: 20, compareAlpha: true));
+          },
+        );
+        
       default:
         return child;
     }
@@ -209,6 +246,17 @@ class _PaintViewState extends State<_PaintView> {
     );
   }
 
+  Widget buildSelectFlood(BuildContext context, Path path) {
+    return CustomPaint(
+      painter: _PathPainter(path, Paint()
+        ..color = Color.fromRGBO(37, 213, 253, 1.0)
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = 1.0
+        ..style = PaintingStyle.stroke
+      ),
+    );
+  }
+
   List<Widget> buildObjectRecognitionBoxes(BuildContext context) {
     if (widget.state.objectRecognition == null) return [];
     RenderBox box = context.findRenderObject();
@@ -238,6 +286,36 @@ class _PaintViewState extends State<_PaintView> {
       );
     }).toList();
   }
+}
+
+class _PathPainter extends CustomPainter {
+  Path path;
+  Paint style;
+  _PathPainter(this.path, this.style);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawPath(path, style);
+  }
+
+  @override
+  bool shouldRepaint(_PathPainter oldDelegate) =>
+    path != oldDelegate.path || style != oldDelegate.style;
+}
+
+class _TapHandler extends GestureDetector {
+  BuildContext context;
+  OffsetCallback onTapped;
+  _TapHandler(this.context, Widget child, {@required this.onTapped}) :
+    super(
+      child: child,
+      onTapDown: (TapDownDetails update) {
+        RenderBox box = context.findRenderObject();
+        Offset point = box.globalToLocal(update.globalPosition);
+        if (point.dx >=0 && point.dy >= 0 && point.dx < box.size.width && point.dy < box.size.height)  
+          onTapped(point);
+      }
+    );
 }
 
 abstract class _DragHandler extends Drag {

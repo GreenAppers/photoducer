@@ -32,7 +32,8 @@ dependencies:
   flutter_native_image:
     git: https://github.com/btastic/flutter_native_image.git
 
-  image: ^2.0.7
+  image:
+    path: ./image
 
   image_picker_saver: 0.1.0
 
@@ -42,6 +43,9 @@ dependencies:
     path: ./persistent_canvas
 
   photo_view: ^0.2.1
+
+  potrace:
+    path: ./flutter_potrace
 
   scoped_model: ^1.0.1
 
@@ -72,6 +76,7 @@ flutter:
   assets:
     - assets/dogandhorse.jpg
     - assets/shoeedges.png
+    - assets/catcontours.png
     - assets/edges2shoes.tflite
     - assets/edges2shoes.txt
     - assets/contours2cats.tflite
