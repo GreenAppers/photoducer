@@ -37,6 +37,8 @@ dependencies:
 
   image_picker_saver: 0.1.0
 
+  path_drawing: ^0.4.0
+
   path_provider: 0.4.1
 
   persistent_canvas:
@@ -74,15 +76,7 @@ flutter:
   #  - images/a_dot_burr.jpeg
   #  - images/a_dot_ham.jpeg
   assets:
-    - assets/dogandhorse.jpg
-    - assets/shoeedges.png
-    - assets/catcontours.png
-    - assets/edges2shoes.tflite
-    - assets/edges2shoes.txt
-    - assets/contours2cats.tflite
-    - assets/contours2cats.txt
-    - assets/yolov2_tiny.tflite
-    - assets/yolov2_tiny.txt
+    - assets/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.io/assets-and-images/#resolution-aware.
@@ -109,3 +103,18 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.io/custom-fonts/#from-packages
+
+  fonts:
+    - family: Rock Salt
+      fonts:
+        # https://fonts.google.com/specimen/Rock+Salt
+        - asset: fonts/Rock_Salt/RockSalt-Regular.ttf
+    - family: VT323
+      fonts:
+        # https://fonts.google.com/specimen/VT323
+        - asset: fonts/VT323/VT323-Regular.ttf
+    - family: Ewert
+      fonts:
+        # https://fonts.google.com/specimen/Ewert
+       - asset: fonts/Ewert/Ewert-Regular.ttf
+

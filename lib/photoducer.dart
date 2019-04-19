@@ -1,11 +1,15 @@
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:busy_model/busy_model.dart';
 import 'package:image/image.dart' as img;
+import 'package:path_drawing/path_drawing.dart';
 import 'package:persistent_canvas/persistent_canvas.dart';
 import 'package:persistent_canvas/photograph_transducer.dart';
 import 'package:persistent_canvas/pixel_buffer.dart';
@@ -23,6 +27,8 @@ class PhotoducerModel extends Model {
   Path selectFlood;
   List objectRecognition;
   int layerIndex;
+
+  bool get haveSelection => selectFlood != null || selectBox != null;
 
   void setState(VoidCallback stateChangeCb) {
     stateChangeCb();
@@ -60,6 +66,18 @@ class PhotoducerModel extends Model {
 
   void setObjectRecognition(List x) {
     setState((){ objectRecognition = x; });
+  }
+
+  Path getSelection() {
+    if (selectFlood != null) return selectFlood;
+    if (selectBox == null) return null;
+    Path ret = Path();
+    ret.moveTo(selectBox.left, selectBox.top);
+    ret.lineTo(selectBox.left + selectBox.width, selectBox.top);
+    ret.lineTo(selectBox.left + selectBox.width, selectBox.top + selectBox.height);
+    ret.lineTo(selectBox.left, selectBox.top + selectBox.height);
+    ret.lineTo(selectBox.left, selectBox.top);
+    return ret;
   }
 }
 
@@ -155,10 +173,8 @@ class _PaintViewState extends State<_PaintView> {
       stack.add(buildGestureDetector(context, PersistentCanvasWidget(widget.layers.layer[widget.state.layerIndex])));
     }
     stack.add(Stack(children: buildObjectRecognitionBoxes(context)));
-    if (widget.state.selectBox != null)
-      stack.add(buildSelectBox(context, widget.state.selectBox));
-    if (widget.state.selectFlood != null)
-      stack.add(buildSelectFlood(context, widget.state.selectFlood));
+    if (widget.state.haveSelection)
+      stack.add(buildSelectPath(widget.state.getSelection()));
 
     return BusyModalBarrier(
       model: busy,
@@ -229,7 +245,7 @@ class _PaintViewState extends State<_PaintView> {
     );
   }
 
-  Widget buildSelectBox(BuildContext context, Rect box) {
+  Widget buildSelectRect(Rect box) {
     return Positioned(
       left:   box.left,
       top:    box.top,
@@ -246,9 +262,9 @@ class _PaintViewState extends State<_PaintView> {
     );
   }
 
-  Widget buildSelectFlood(BuildContext context, Path path) {
+  Widget buildSelectPath(Path path) {
     return CustomPaint(
-      painter: _PathPainter(path, Paint()
+      painter: _DashedPathPainter(path, Paint()
         ..color = Color.fromRGBO(37, 213, 253, 1.0)
         ..strokeCap = StrokeCap.round
         ..strokeWidth = 1.0
@@ -288,18 +304,24 @@ class _PaintViewState extends State<_PaintView> {
   }
 }
 
-class _PathPainter extends CustomPainter {
+class _DashedPathPainter extends CustomPainter {
   Path path;
   Paint style;
-  _PathPainter(this.path, this.style);
+  _DashedPathPainter(this.path, this.style);
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawPath(path, style);
+    canvas.drawPath(
+      dashPath(
+        path,
+        dashArray: CircularIntervalList<double>(<double>[3, 6]),
+      ),
+      style
+    );
   }
 
   @override
-  bool shouldRepaint(_PathPainter oldDelegate) =>
+  bool shouldRepaint(_DashedPathPainter oldDelegate) =>
     path != oldDelegate.path || style != oldDelegate.style;
 }
 
@@ -371,4 +393,22 @@ class _SelectBoxDragHandler extends _DragHandler {
     parent.widget.state.setSelectBox(Rect.fromLTRB(min(point.dx, startPoint.dx), min(point.dy, startPoint.dy),
                                                    max(point.dx, startPoint.dx), max(point.dy, startPoint.dy)));
   }
+}
+
+String assetPath(String name) => 'assets' + Platform.pathSeparator + name;
+
+Future<ui.Image> loadAssetFile(String name) async {
+  ByteData bytes = await rootBundle.load(assetPath(name));
+  return loadImageFileBytes(bytes.buffer.asUint8List());
+}
+
+Future<ui.Image> loadImageFile(File file) async {
+  List<int> bytes = await file.readAsBytes();
+  return loadImageFileBytes(bytes);
+}
+
+Future<ui.Image> loadImageFileBytes(List<int> bytes) async {
+  ui.Codec codec = await ui.instantiateImageCodec(bytes);
+  ui.FrameInfo frame = await codec.getNextFrame();
+  return frame.image;
 }

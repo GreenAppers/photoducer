@@ -63,8 +63,6 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
 
   PhotographTransducer get model => layers.canvas.model;
 
-  String assetPath(String name) => 'assets' + Platform.pathSeparator + name;
-
   @override
   Widget build(BuildContext context) {
     List<Widget> column = <Widget>[];
@@ -130,7 +128,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
         ..addItem(icon: Icon(Icons.refresh),         text: 'New',    onSelected: newImage)
         ..addItem(icon: Icon(Icons.save),            text: 'Save',   onSelected: saveImage)
         ..addItem(icon: Icon(Icons.screen_share),    text: 'Export', onSelected: exportSVG)
-        ..addItem(icon: Icon(Icons.open_in_browser), text: 'Load',   onSelected: loadImage)
+        ..addItem(icon: Icon(Icons.open_in_browser), text: 'Load',   onSelected: pickImage)
         ..addItem(icon: Icon(Icons.photo_library),   text: 'Stock',  onSelected: pickStockImage)
       ).build(),
 
@@ -145,7 +143,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
 
       (PopupMenuBuilder(icon: Icon(Icons.category))
         ..addItem(icon: Icon(Icons.palette),           text: 'Color', onSelected: pickColor)
-        ..addItem(icon: Icon(Icons.format_color_text), text: 'Font')
+        ..addItem(icon: Icon(Icons.format_color_text), text: 'Font',  onSelected: pickFont)
         ..addItem(icon: Icon(Icons.brush),             text: 'Brush')
         ..addItem(icon: Icon(Icons.gradient),          text: 'Gradient')
       ).build(),
@@ -153,7 +151,9 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
       (PopupMenuBuilder(icon: Icon(Icons.crop_free))
         ..addItem(icon: Icon(Icons.remove_from_queue), text: 'Cut')
         ..addItem(icon: Icon(Icons.crop),              text: 'Crop', onSelected: (){ model.addCrop(photoducerState.selectBox); })
-        ..addItem(icon: Icon(Icons.format_color_fill), text: 'Fill')
+        ..addItem(icon: Icon(Icons.format_color_fill), text: 'Fill', onSelected: (){
+          if (photoducerState.haveSelection) layers.canvas.drawPath(photoducerState.getSelection(), model.orthogonalState.paint);
+        })
       ).build(),
 
       (PopupMenuBuilder(icon: Icon(Icons.border_clear))
@@ -198,7 +198,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
   }
 
   void pickStockImage() {
-    List<String> stockImages = const <String> [ 'dogandhorse.jpg', 'shoeedges.png', 'catcontours.png' ];
+    List<String> stockImages = const <String> [ 'dogandhorse.jpg', 'shoeedges.png', 'catcontours.png', 'yao.jpg' ];
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -255,6 +255,55 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     );
   }
 
+  void pickFont() {
+    List<String> fontFamily = const <String> [ 'Roboto', 'Rock Salt', 'VT323', 'Ewert', 'MaterialIcons' ];
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Select a font'),
+        content: Container(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            scrollDirection: Axis.vertical,
+            itemCount: fontFamily.length,
+            itemBuilder: (BuildContext context, int index) => GestureDetector(
+              child: Container(
+                child: Column(
+                  children: <Widget>[
+                    Text(fontFamily[index]),
+                    Text(fontFamily[index] == 'MaterialIcons' ?
+                      '\u{E914}\u{E000}\u{E90D}\u{E3AF}\u{E40A}\u{E420}\u{E52F}\u{E636}\u{EB3E}\u{E80B}\u{E838}' :
+                      'Brevity is levity pressed for expressitivity',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontFamily: fontFamily[index],
+                        fontSize: 17.0,
+                      ),
+                    ),
+                  ],
+                ),
+                margin: const EdgeInsets.all(10.0),
+                padding: const EdgeInsets.all(10.0),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.all(Radius.circular(5.0)),
+                ),
+              ),
+              onTap: () { Navigator.of(context).pop(); },
+            ),
+          ),
+        ),
+        actions: <Widget>[
+          FlatButton(
+            child: const Text('Done'),
+            onPressed: () { Navigator.of(context).pop(); },
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> voidResult() async {}
 
   Future<void> newImage() async {
@@ -263,7 +312,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     loadUiImage(null);
   }
 
-  Future<void> loadImage() async {
+  Future<void> pickImage() async {
     String filePath = await FilePicker.getFilePath(type: FileType.IMAGE);
     if (filePath == '') return voidResult();
     setState((){
@@ -281,8 +330,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
       scaledImageSize = null;
       model.busy.setBusy('Loading ' + loadedImage);
     });
-    ByteData bytes = await rootBundle.load(assetPath(name));
-    ui.Image image = await loadImageFileBytes(bytes.buffer.asUint8List());
+    ui.Image image = await loadAssetFile(name);
     loadUiImage(image);
   }
 
@@ -302,15 +350,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     } else {
       file = File(filename);
     }
-
-    List<int> bytes = await file.readAsBytes();
-    return loadImageFileBytes(bytes);
-  }
-
-  Future<ui.Image> loadImageFileBytes(List<int> bytes) async {
-    ui.Codec codec = await ui.instantiateImageCodec(bytes);
-    ui.FrameInfo frame = await codec.getNextFrame();
-    return frame.image;
+    return loadImageFile(file);
   }
 
   void loadUiImage(ui.Image image) {
