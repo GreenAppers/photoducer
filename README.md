@@ -3,6 +3,7 @@
 
 Photograph Transducer is an image manipulation utility with a formal edit history editable as code.
 
+![](demo.gif)
 
 ## Getting Started
 
@@ -35,6 +36,11 @@ And merged these PRs in established Flutter packages and plugins:
 
 - [image](https://pub.dartlang.org/packages/image)
     - [Add flood fill #112](https://github.com/brendan-duncan/image/pull/112)
+
+
+## Contributing
+
+Pull Requests appreciated!
 
 
 ## Layer cake
