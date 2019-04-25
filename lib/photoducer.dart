@@ -19,7 +19,7 @@ import 'package:scoped_model/scoped_model.dart';
 
 typedef OffsetCallback = void Function(Offset);
 
-enum PhotoducerTool { none, draw, selectBox, selectFlood, fillFlood }
+enum PhotoducerTool { none, draw, selectBox, selectFlood, fillFlood, colorSample }
 
 class PhotoducerModel extends Model {
   PhotoducerTool tool = PhotoducerTool.draw;
@@ -78,6 +78,25 @@ class PhotoducerModel extends Model {
     ret.lineTo(selectBox.left, selectBox.top + selectBox.height);
     ret.lineTo(selectBox.left, selectBox.top);
     return ret;
+  }
+
+  static Icon getToolIcon(PhotoducerTool tool) => Icon(getToolIconData(tool));
+
+  static IconData getToolIconData(PhotoducerTool tool) {
+    switch(tool) {
+      case PhotoducerTool.none:
+        return Icons.pan_tool;
+      case PhotoducerTool.draw:
+        return Icons.edit;
+      case PhotoducerTool.selectBox:
+        return Icons.crop_free;
+      case PhotoducerTool.selectFlood:
+        return Icons.highlight;
+      case PhotoducerTool.colorSample:
+        return Icons.colorize;
+      case PhotoducerTool.fillFlood:
+        return Icons.format_color_fill;
+    }
   }
 }
 
@@ -207,7 +226,7 @@ class _PaintViewState extends State<_PaintView> {
         return _TapHandler(context, child,
           onTapped: (Offset point) async {
             model.busy.setBusy('Selecting');
-            img.Image downloaded = await model.state.getDownloadedImage();
+            img.Image downloaded = await model.state.getDownloadedState();
             Uint8List mask = img.maskFlood(downloaded, point.dx.round(), point.dy.round(),
                                            threshold: 20, compareAlpha: true, fillValue: 1);
             Path path = potraceMask(mask, downloaded.width, downloaded.height);
@@ -218,10 +237,26 @@ class _PaintViewState extends State<_PaintView> {
 
       case PhotoducerTool.fillFlood:
         return _TapHandler(context, child,
-          onTapped: (Offset point) {
-            int color = imgColorFromColor(model.orthogonalState.paint.color);
-            model.addDownloadedTransform((img.Image x) => img.fillFlood(x, point.dx.round(), point.dy.round(), color,
-                                                                        threshold: 20, compareAlpha: true));
+          onTapped: (Offset point) async {
+            model.busy.setBusy('Filling');
+            img.Image downloaded = await model.state.getDownloadedState();
+            Uint8List mask = img.maskFlood(downloaded, point.dx.round(), point.dy.round(),
+                                           threshold: 20, compareAlpha: true, fillValue: 1);
+            Path path = potraceMask(mask, downloaded.width, downloaded.height);
+            widget.layers.canvas.drawPath(path, model.orthogonalState.paint);
+            model.busy.reset();
+          },
+        );
+
+      case PhotoducerTool.colorSample:
+        return _TapHandler(context, child,
+          onTapped: (Offset point) async {
+            model.busy.setBusy('Sampling');
+            img.Image downloaded = await model.state.getDownloadedState();
+            int pixel = downloaded.getPixel(point.dx.round(), point.dy.round());
+            Color color = colorFromImgColor(pixel);
+            model.changeColor(color);
+            model.busy.reset();
           },
         );
         

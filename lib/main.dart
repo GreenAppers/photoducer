@@ -18,6 +18,7 @@ import 'package:persistent_canvas/pixel_buffer.dart';
 import 'package:persistent_canvas/persistent_canvas.dart';
 import 'package:persistent_canvas/photograph_transducer.dart';
 import 'package:potrace/potrace.dart';
+import 'package:scoped_model/scoped_model.dart';
 import 'package:tflite/tflite.dart';
 
 import 'package:photoducer/photoducer.dart';
@@ -36,13 +37,19 @@ void main() async {
 
   runZoned<Future<void>>(
     () async {
-      runApp(MaterialApp(
-        title: 'Photoducer',
-        theme: ThemeData(
-          primarySwatch: Colors.blue,
-        ),
-        home: PhotoducerApp()
-      ));
+      BusyModel busy = BusyModel();
+      runApp(
+        MaterialApp(
+          title: 'Photoducer',
+          theme: ThemeData(
+            primarySwatch: Colors.blue,
+          ),
+          home: BusyScope(
+            model: busy,
+            child: PhotoducerApp(busy),
+          ),
+        )
+      );
     }, onError: (error, stackTrace) async {
       await FlutterCrashlytics().reportCrash(error, stackTrace, forceCrash: false);
     }
@@ -50,21 +57,28 @@ void main() async {
 }
 
 class PhotoducerApp extends StatefulWidget {
+  final BusyModel busy;
+  PhotoducerApp(this.busy);
+
   @override
-  _PhotoducerAppState createState() => _PhotoducerAppState();
+  _PhotoducerAppState createState() => _PhotoducerAppState(busy);
 }
 
 class _PhotoducerAppState extends State<PhotoducerApp> {
-  final PersistentCanvasLayers layers = PersistentCanvasLayers(busy: BusyModel());
+  final PersistentCanvasLayers layers;
   final PhotoducerModel photoducerState = PhotoducerModel();
   bool showLayersView = false, showToolbar = true;
   String loadedImage, loadedModel;
   Size loadedImageSize, scaledImageSize;
 
+  _PhotoducerAppState(BusyModel busy) : layers=PersistentCanvasLayers(busy: busy);
+
   PhotographTransducer get model => layers.canvas.model;
 
   @override
   Widget build(BuildContext context) {
+    ScopedModel.of<BusyModel>(context, rebuildOnChange: true);
+
     List<Widget> column = <Widget>[];
     column.add(
       Expanded(
@@ -82,14 +96,27 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
       appBar: AppBar(
         title: Text(loadedImage != null ? loadedImage.split(Platform.pathSeparator).last : 'Photoducer'),
         actions: <Widget>[
+          Container(
+            child: IconButton(
+              icon: Icon(
+                PhotoducerModel.getToolIconData(photoducerState.tool),
+                color: model.orthogonalState.paint.color,
+              ),
+              tooltip: 'Color',
+              onPressed: pickColor,
+            ),
+            color: model.orthogonalState.backgroundColor,
+            margin: EdgeInsets.all(10.0),
+          ),
+
           IconButton(
-            icon: new Icon(Icons.undo),
+            icon: Icon(Icons.undo),
             tooltip: 'Undo',
             onPressed: () { model.walkVersion(-1); photoducerState.reset(); }
           ),
 
           IconButton(
-            icon: new Icon(Icons.redo),
+            icon: Icon(Icons.redo),
             tooltip: 'Redo',
             onPressed: () { model.walkVersion(1); photoducerState.reset(); }
           ),
@@ -107,15 +134,12 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
         ],
       ),
 
-      body: BusyScope(
-        model: model.busy,
-        child: PhotoducerScope(
-          state: photoducerState,
-          child: Container(
-            decoration: BoxDecoration(color: Colors.blueGrey[50]),
-            child: Column(
-              children: column,
-            ),
+      body: PhotoducerScope(
+        state: photoducerState,
+        child: Container(
+          decoration: BoxDecoration(color: Colors.blueGrey[50]),
+          child: Column(
+            children: column,
           ),
         ),
       ),
@@ -133,12 +157,12 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
       ).build(),
 
       (PopupMenuBuilder(icon: Icon(Icons.build))
-        ..addItem(icon: Icon(Icons.pan_tool),          text: 'Hand',         onSelected: (){ photoducerState.setTool(PhotoducerTool.none); })
-        ..addItem(icon: Icon(Icons.edit),              text: 'Draw',         onSelected: (){ photoducerState.setTool(PhotoducerTool.draw); })
-        ..addItem(icon: Icon(Icons.crop_free),         text: 'Select Box',   onSelected: (){ photoducerState.setTool(PhotoducerTool.selectBox); })
-        ..addItem(icon: Icon(Icons.highlight),         text: 'Select Wand',  onSelected: (){ photoducerState.setTool(PhotoducerTool.selectFlood); })
-        ..addItem(icon: Icon(Icons.colorize),          text: 'Sample Color', onSelected: (){ photoducerState.setTool(PhotoducerTool.selectBox); })
-        ..addItem(icon: Icon(Icons.format_color_fill), text: 'Fill',         onSelected: (){ photoducerState.setTool(PhotoducerTool.fillFlood); })
+        ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.none),        text: 'Hand',         onSelected: (){ setTool(PhotoducerTool.none); })
+        ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.draw),        text: 'Draw',         onSelected: (){ setTool(PhotoducerTool.draw); })
+        ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.selectBox),   text: 'Select Box',   onSelected: (){ setTool(PhotoducerTool.selectBox); })
+        ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.selectFlood), text: 'Select Wand',  onSelected: (){ setTool(PhotoducerTool.selectFlood); })
+        ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.colorSample), text: 'Sample Color', onSelected: (){ setTool(PhotoducerTool.colorSample); })
+        ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.fillFlood),   text: 'Fill',         onSelected: (){ setTool(PhotoducerTool.fillFlood); })
       ).build(),
 
       (PopupMenuBuilder(icon: Icon(Icons.category))
@@ -197,6 +221,8 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     );
   }
 
+  void setTool(PhotoducerTool tool) => setState((){ photoducerState.setTool(tool); });
+
   void pickStockImage() {
     List<String> stockImages = const <String> [ 'dogandhorse.jpg', 'shoeedges.png', 'catcontours.png', 'yao.jpg' ];
     showDialog(
@@ -246,7 +272,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
           FlatButton(
             child: const Text('Done'),
             onPressed: () {
-              model.changeColor(pickerColor);
+              setState((){ model.changeColor(pickerColor); });
               Navigator.of(context).pop();
             },
           ),
@@ -367,7 +393,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
       PhotographTransducer fullResTransducer = PhotographTransducer();
       fullResTransducer.reset(await loadImageFileNamed(loadedImage, downscale: false));
       fullResTransducer.addList(model.input, startIndex: 1);
-      image = await fullResTransducer.getRenderedImage();
+      image = await fullResTransducer.getUploadedState();
     }
     model.busy.setBusy('Saving');
     var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
@@ -377,7 +403,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
   }
 
   Future<String> exportSVG() async {
-    img.Image downloaded = await model.state.getDownloadedImage();
+    img.Image downloaded = await model.state.getDownloadedState();
     String svg = potrace(downloaded);
     String path = await stashPath('export.svg');
     debugPrint('exportSVG: ' + path);
