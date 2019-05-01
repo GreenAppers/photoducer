@@ -42,7 +42,7 @@ void main() async {
         MaterialApp(
           title: 'Photoducer',
           theme: ThemeData(
-            primarySwatch: Colors.blue,
+            primarySwatch: Colors.green,
           ),
           home: BusyScope(
             model: busy,
@@ -166,17 +166,30 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
       ).build(),
 
       (PopupMenuBuilder(icon: Icon(Icons.category))
-        ..addItem(icon: Icon(Icons.palette),           text: 'Color', onSelected: pickColor)
-        ..addItem(icon: Icon(Icons.format_color_text), text: 'Font',  onSelected: pickFont)
-        ..addItem(icon: Icon(Icons.brush),             text: 'Brush')
-        ..addItem(icon: Icon(Icons.gradient),          text: 'Gradient')
+        ..addItem(icon: Icon(Icons.palette),           text: 'Color',    onSelected: pickColor)
+        ..addItem(icon: Icon(Icons.format_color_text), text: 'Font',     onSelected: pickFont)
+        ..addItem(icon: Icon(Icons.brush),             text: 'Brush',    onSelected: pickBrush)
+        ..addItem(icon: Icon(Icons.gradient),          text: 'Gradient', onSelected: pickGradient)
       ).build(),
 
       (PopupMenuBuilder(icon: Icon(Icons.crop_free))
-        ..addItem(icon: Icon(Icons.remove_from_queue), text: 'Cut')
-        ..addItem(icon: Icon(Icons.crop),              text: 'Crop', onSelected: (){ model.addCrop(photoducerState.selectBox); })
+        ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.selectMove),  text: 'Move',  onSelected: (){ setTool(PhotoducerTool.selectMove); })
+        ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.selectScale), text: 'Scale', onSelected: (){ setTool(PhotoducerTool.selectScale); })
+        ..addItem(icon: Icon(Icons.content_copy), text: 'Copy',  onSelected: (){
+          if (photoducerState.selection != null) photoducerState.copySelection(layers.canvas);
+        })
+        ..addItem(icon: Icon(Icons.remove_from_queue), text: 'Cut',  onSelected: (){
+          if (photoducerState.selection != null) photoducerState.copySelection(layers.canvas, cut: true);
+        })
+        ..addItem(icon: Icon(Icons.add_to_queue), text: 'Paste',  onSelected: (){
+          if (photoducerState.selection != null && photoducerState.pasteBuffer != null) photoducerState.pasteToSelection(layers.canvas);
+        })
+        ..addItem(icon: Icon(Icons.crop),              text: 'Crop', onSelected: (){
+          model.addCrop(photoducerState.selection.getBounds());
+          photoducerState.reset();
+        })
         ..addItem(icon: Icon(Icons.format_color_fill), text: 'Fill', onSelected: (){
-          if (photoducerState.haveSelection) layers.canvas.drawPath(photoducerState.getSelection(), model.orthogonalState.paint);
+          if (photoducerState.selection != null) layers.canvas.drawPath(photoducerState.selection, model.orthogonalState.paint);
         })
       ).build(),
 
@@ -328,6 +341,25 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
         ],
       ),
     );
+  }
+
+  void pickBrush() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Brush'),
+        content: _BrushPicker(model.orthogonalState.paint),
+        actions: <Widget>[
+          FlatButton(
+            child: const Text('Done'),
+            onPressed: () { Navigator.of(context).pop(); },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void pickGradient() {
   }
 
   Future<void> voidResult() async {}
@@ -540,3 +572,137 @@ class PopupMenuBuilder {
     );
   }
 } 
+
+class _BrushPicker extends StatefulWidget {
+  Paint paint;
+  _BrushPicker(this.paint);
+
+  @override
+  _BrushPickerState createState() => _BrushPickerState();
+}
+
+class _BrushPickerState extends State<_BrushPicker> {
+  TextEditingController widthController = TextEditingController();
+
+  @override
+  void dispose() {
+    widthController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    widthController.text = widget.paint.strokeWidth.toString();
+    return Container(
+      width: double.maxFinite,
+      child: ListView(
+        shrinkWrap: true,
+        children: <Widget>[
+          ListTile(
+            title: Text('Shape'),
+            trailing: DropdownButton<String>(
+              value: enumName(widget.paint.strokeCap),
+              onChanged: (String val) =>
+                setState((){ widget.paint.strokeCap = StrokeCap.values.firstWhere((x) => enumName(x) == val); }),
+              items: _buildDropdownMenuItem(StrokeCap.values.map(enumName).toList()),
+            ),
+          ),
+
+          ListTile(
+            title: Text('Blend'),
+            trailing: DropdownButton<String>(
+              value: enumName(widget.paint.blendMode),
+              onChanged: (String val) =>
+                setState((){ widget.paint.blendMode = BlendMode.values.firstWhere((x) => enumName(x) == val); }),
+              items: _buildDropdownMenuItem(BlendMode.values.map(enumName).toList()),
+            ),
+            onTap: () => setState((){ widget.paint.blendMode = BlendMode.srcOver; }),
+          ),
+
+          ListTile(
+            title: Text('Anti-Alias'),
+            trailing: Checkbox(
+              value: widget.paint.isAntiAlias,
+              onChanged: (bool val) => setState((){ widget.paint.isAntiAlias = val; }),
+            ),
+            onTap: () => setState((){ widget.paint.isAntiAlias = !widget.paint.isAntiAlias; }),
+          ),
+
+          ListTile(
+            title: Text('Width'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                IconButton(
+                  padding: const EdgeInsets.all(0.0), 
+                  icon: Icon(Icons.arrow_left),
+                  onPressed: () =>
+                      setState((){ widget.paint.strokeWidth -= 1.0; }),
+                ),
+
+                Container(
+                  width: 50,
+                  child: TextField(
+                    controller: widthController,
+                    textAlign: TextAlign.right,
+                    keyboardType: TextInputType.number,
+                    onChanged: (String v) =>
+                      setState((){ widget.paint.strokeWidth = double.parse(v); }),
+                  ),
+                ),
+
+                IconButton(
+                  padding: const EdgeInsets.all(0.0), 
+                  icon: Icon(Icons.arrow_right),
+                  onPressed: () =>
+                      setState((){ widget.paint.strokeWidth += 1.0; }),
+                ),
+              ],
+            ),
+          ),
+
+          Card(
+            color: Colors.blueGrey[50],
+            child: Container(
+              width: 100,
+              height: 100,
+              child: CustomPaint(
+                painter: _BrushPainter(widget.paint),
+              ),
+            ),
+          ),
+        ]
+      ),
+    );
+  }
+}
+
+class _BrushPainter extends CustomPainter {
+  Paint style;
+  _BrushPainter(this.style);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    Offset c = Offset(size.width/2.0, size.height/2.0);
+    if (style.strokeCap == StrokeCap.round) {
+      canvas.drawCircle(c, style.strokeWidth, style);
+    } else {
+      double w = style.strokeWidth;
+      canvas.drawRect(Rect.fromLTRB(c.dx - w, c.dy - w,
+                                    c.dx + w, c.dy + w), style);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BrushPainter oldDelegate) => true;
+}
+
+
+List<DropdownMenuItem<String>> _buildDropdownMenuItem(List<String> x) {
+  return x.map<DropdownMenuItem<String>>(
+    (String value) => DropdownMenuItem<String>(
+      value: value,
+      child: Text(value),
+    )
+  ).toList();
+}
