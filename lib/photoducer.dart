@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:busy_model/busy_model.dart';
+import 'package:gradient_picker/gradient_picker.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_drawing/path_drawing.dart';
 import 'package:persistent_canvas/persistent_canvas.dart';
@@ -23,11 +24,14 @@ enum Corner { topLeft, topRight, bottomRight, bottomLeft }
 
 enum PhotoducerTool { none, draw, colorSample, fillFlood, selectBox, selectFlood, selectMove, selectScale }
 
+/// [Model] for the image overlay layer
 class PhotoducerModel extends Model {
   PhotoducerTool tool = PhotoducerTool.draw;
   int layerIndex;
   Path selection;
   ui.Image pasteBuffer;
+  bool drawSelectionPasteBuffer = false;
+  GradientSpec gradient = GradientSpec();
   List objectRecognition;
 
   void setState(VoidCallback stateChangeCb) {
@@ -72,8 +76,11 @@ class PhotoducerModel extends Model {
     setState((){ objectRecognition = x; });
   }
 
-  void setSelection(Path x) {
-    setState((){ selection = x; });
+  void setSelection(Path x, {bool drawPasteBuffer}) {
+    setState((){
+      selection = x; 
+      drawSelectionPasteBuffer = drawPasteBuffer ?? drawSelectionPasteBuffer;
+    });
   }
 
   void setSelectBox(Rect selectBox) {
@@ -87,22 +94,25 @@ class PhotoducerModel extends Model {
     });
   }
 
-  void copySelection(PersistentCanvas canvas, {bool cut = false}) {
-    Rect bounds = selection.getBounds();
+  void copySelection(PersistentCanvas canvas, {bool cut = false, ImageCallback done}) {
+    Path selected = selection;
+    Rect bounds = selected.getBounds();
     canvas.model.getUploadedState().then((ui.Image unused){
       canvas.model.state.cropUploaded(bounds,
         userVersion: 0,
-        clipPath: selection,
+        clipPath: selected,
         done: (ui.Image x) {
           pasteBuffer = x;
-          if (cut) canvas.drawPath(selection, Paint()..color = canvas.model.orthogonalState.backgroundColor);
+          if (cut) canvas.drawPath(selected, Paint()..color = canvas.model.orthogonalState.backgroundColor);
+          if (done != null) done(x);
         }
       );
     });
   }
   
-  void pasteToSelection(PersistentCanvas canvas) {
+  void pasteToSelection(PersistentCanvas canvas, {bool drawPasteBuffer}) {
     Rect bounds = selection.getBounds();
+    drawSelectionPasteBuffer = drawPasteBuffer ?? drawSelectionPasteBuffer;
     canvas.drawImageRect(pasteBuffer, Rect.fromLTWH(0, 0, pasteBuffer.width.toDouble(), pasteBuffer.height.toDouble()), bounds, Paint());
   }
 
@@ -130,21 +140,6 @@ class PhotoducerModel extends Model {
   }
 }
 
-class PhotoducerScope extends StatelessWidget {
-  final PhotoducerModel state;
-  final Widget child;
-
-  PhotoducerScope({this.state, this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return ScopedModel<PhotoducerModel>(
-      model: state,
-      child: child,
-    );
-  }
-}
-
 /// [LayersView] provides a [ListView] of thumbnails for each layer in [PersistentCanvasLayers]
 class LayersView extends StatelessWidget {
   final PhotoducerModel state;
@@ -155,7 +150,7 @@ class LayersView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     List<Widget> list = <Widget>[];
-    for (var layer in layers.layer)
+    for (var layer in layers.layer) {
       list.add(
         Card(
           child: Image(
@@ -163,6 +158,35 @@ class LayersView extends StatelessWidget {
           ),
         ),
       );
+
+      list.add((PopupMenuBuilder(icon: Icon(Icons.cached))
+        ..addItem(
+          icon: Icon(Icons.add),
+          text: 'Add Layer',
+          onSelected: (){},
+        )
+        ..addItem(
+          icon: Icon(Icons.arrow_right),
+          text: 'Raise layer',
+          onSelected: (){},
+        )
+        ..addItem(
+          icon: Icon(Icons.arrow_left),
+          text: 'Lower layer',
+          onSelected: (){},
+        )
+        ..addItem(
+          icon: Icon(Icons.skip_next),
+          text: 'Merge up',
+          onSelected: (){},
+        )
+        ..addItem(
+          icon: Icon(Icons.skip_previous),
+          text: 'Merge down',
+          onSelected: (){},
+        )
+      ).build());
+    }
 
     return Container(
       height: 100,
@@ -251,6 +275,8 @@ class _PaintViewState extends State<_PaintView> {
           );
           break;
       }
+      if (widget.state.drawSelectionPasteBuffer)
+        stack.add(buildSelectionPasteBuffer(selectionBounds));
     }
 
     return BusyModalBarrier(
@@ -393,6 +419,18 @@ class _PaintViewState extends State<_PaintView> {
     );
   }
 
+  Widget buildSelectionPasteBuffer(Rect box) {
+    return Positioned(
+      left:   box.left,
+      top:    box.top,
+      width:  box.width,
+      height: box.height,
+      child:  CustomPaint(
+        painter: ScaledPixelBufferPainter.fromImage(widget.state.pasteBuffer)
+      ),
+    );
+  }
+
   Widget buildSelectPath(Path path) {
     return CustomPaint(
       painter: _DashedPathPainter(path, Paint()
@@ -524,9 +562,11 @@ abstract class _DragHandler extends Drag {
   }
 
   void dragUpdate(Offset point);
+  void dragEnd() {}
 
   @override
   void end(DragEndDetails details) {
+    dragEnd();
     if (--parent.dragCount == 0)
       parent.setState((){});
   }
@@ -571,35 +611,55 @@ class _SelectBoxDragHandler extends _DragHandler {
   }
 }
 
-class _SelectMoveDragHandler extends _DragHandler {
+abstract class _PasteDragHandler extends _DragHandler {
   Path orig;
   Offset firstPoint;
+  bool copied = false, ended = false;
 
-  _SelectMoveDragHandler(_PaintViewState parent, BuildContext context) :
+  _PasteDragHandler(_PaintViewState parent, BuildContext context) :
     orig=parent.widget.state.selection, super(parent, context);
 
   @override
   void dragUpdate(Offset point) {
-    if (firstPoint == null) firstPoint = point;
-    parent.widget.state.setSelection(orig.shift(point - firstPoint));
+    if (firstPoint == null) {
+      firstPoint = point;
+      parent.widget.state.copySelection(parent.widget.layers.canvas, cut: true, done: (ui.Image x) {
+        copied = true;
+        if (ended) parent.widget.state.pasteToSelection(parent.widget.layers.canvas, drawPasteBuffer: false);
+      });
+    }
+  }
+
+  @override
+  void dragEnd() {
+    ended = true;
+    if (copied) parent.widget.state.pasteToSelection(parent.widget.layers.canvas, drawPasteBuffer: false);
   }
 }
 
-class _SelectScaleDragHandler extends _DragHandler {
-  Path orig;
+class _SelectMoveDragHandler extends _PasteDragHandler {
+  _SelectMoveDragHandler(_PaintViewState parent, BuildContext context) : super(parent, context);
+
+  @override
+  void dragUpdate(Offset point) {
+    super.dragUpdate(point);
+    parent.widget.state.setSelection(orig.shift(point - firstPoint), drawPasteBuffer: copied);
+  }
+}
+
+class _SelectScaleDragHandler extends _PasteDragHandler {
   Rect origRect;
   Corner corner;
-  Offset firstPoint;
 
-  _SelectScaleDragHandler(_PaintViewState parent, BuildContext context, this.corner) :
-    orig=parent.widget.state.selection, super(parent, context) {
+  _SelectScaleDragHandler(_PaintViewState parent, BuildContext context, this.corner) : super(parent, context) {
     origRect = orig.getBounds();
     parent.scalingCorner = corner;
   }
 
   @override
   void dragUpdate(Offset point) {
-    if (firstPoint == null) firstPoint = point;
+    super.dragUpdate(point);
+
     Offset offset = Offset(0, 0), delta = point - firstPoint;
     bool scaleDirX=false, scaleDirY=false;
 
@@ -632,16 +692,11 @@ class _SelectScaleDragHandler extends _DragHandler {
     matrix.translate((-origRect.left),
                      (-origRect.top ));
 
-    parent.widget.state.setSelection(orig.transform(matrix.storage));
+    parent.widget.state.setSelection(orig.transform(matrix.storage), drawPasteBuffer: copied);
   }
 }
 
 String assetPath(String name) => 'assets' + Platform.pathSeparator + name;
-
-String enumName(var x) {
-  String ret = x.toString().split('.')[1];
-  return ret.length > 0 ? ret[0].toUpperCase() + ret.substring(1) : ret;
-}
 
 Rect centerRect(Rect x, Offset c) =>
   Rect.fromLTWH(c.dx - x.width / 2.0, c.dy - x.height / 2.0, x.width, x.height);

@@ -32,6 +32,9 @@ dependencies:
   flutter_native_image:
     git: https://github.com/btastic/flutter_native_image.git
 
+  gradient_picker:
+    path: ./gradient_picker
+
   image:
     path: ./image
 

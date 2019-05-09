@@ -11,6 +11,7 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_crashlytics/flutter_crashlytics.dart';
 import 'package:flutter_native_image/flutter_native_image.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:gradient_picker/gradient_picker.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker_saver/image_picker_saver.dart';
 import 'package:path_provider/path_provider.dart';
@@ -56,6 +57,7 @@ void main() async {
   );
 }
 
+/// Top level [Widget] state is already lifted up - no [Model] needed.
 class PhotoducerApp extends StatefulWidget {
   final BusyModel busy;
   PhotoducerApp(this.busy);
@@ -64,6 +66,7 @@ class PhotoducerApp extends StatefulWidget {
   _PhotoducerAppState createState() => _PhotoducerAppState(busy);
 }
 
+/// Workspace overlay layer
 class _PhotoducerAppState extends State<PhotoducerApp> {
   final PersistentCanvasLayers layers;
   final PhotoducerModel photoducerState = PhotoducerModel();
@@ -71,7 +74,11 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
   String loadedImage, loadedModel;
   Size loadedImageSize, scaledImageSize;
 
-  _PhotoducerAppState(BusyModel busy) : layers=PersistentCanvasLayers(busy: busy);
+  _PhotoducerAppState(BusyModel busy) :
+    layers=PersistentCanvasLayers(
+      coordinates: PersistentCanvasCoordinates.normalize,
+      busy: busy
+    );
 
   PhotographTransducer get model => layers.canvas.model;
 
@@ -134,8 +141,8 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
         ],
       ),
 
-      body: PhotoducerScope(
-        state: photoducerState,
+      body: ScopedModel<PhotoducerModel>(
+        model: photoducerState,
         child: Container(
           decoration: BoxDecoration(color: Colors.blueGrey[50]),
           child: Column(
@@ -360,6 +367,19 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
   }
 
   void pickGradient() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Gradient'),
+        content: GradientPicker(photoducerState.gradient, model.orthogonalState.paint),
+        actions: <Widget>[
+          FlatButton(
+            child: const Text('Done'),
+            onPressed: () { Navigator.of(context).pop(); },
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> voidResult() async {}
@@ -525,54 +545,6 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
   }
 }
 
-class PopupMenuBuilder {
-  final Icon icon;
-  int nextIndex = 0;
-  List<PopupMenuItem<int>> item = <PopupMenuItem<int>>[];
-  List<VoidCallback> onSelectedCallback = <VoidCallback>[];
-
-  PopupMenuBuilder({this.icon});
-
-  PopupMenuBuilder addItem({Icon icon, String text, VoidCallback onSelected}) {
-    onSelectedCallback.add(onSelected);
-    if (icon != null) {
-      item.add(
-        PopupMenuItem<int>(
-          child: Row(
-            children: <Widget>[
-              Container(
-                padding: const EdgeInsets.all(8.0),
-                child: icon
-              ),
-              Container(
-                padding: const EdgeInsets.all(10.0),
-                child: Text(text),
-              ),
-            ],
-          ),
-          value: nextIndex++
-        )
-      );
-    } else {
-      item.add(
-        PopupMenuItem<int>(
-          child: Text(text),
-          value: nextIndex++
-        )
-      );
-    }
-    return this;
-  }
-
-  Widget build() {
-    return PopupMenuButton(
-      icon: icon,
-      itemBuilder: (_) => item,
-      onSelected: (int v) { onSelectedCallback[v](); }
-    );
-  }
-} 
-
 class _BrushPicker extends StatefulWidget {
   Paint paint;
   _BrushPicker(this.paint);
@@ -582,17 +554,8 @@ class _BrushPicker extends StatefulWidget {
 }
 
 class _BrushPickerState extends State<_BrushPicker> {
-  TextEditingController widthController = TextEditingController();
-
-  @override
-  void dispose() {
-    widthController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
-    widthController.text = widget.paint.strokeWidth.toString();
     return Container(
       width: double.maxFinite,
       child: ListView(
@@ -604,7 +567,7 @@ class _BrushPickerState extends State<_BrushPicker> {
               value: enumName(widget.paint.strokeCap),
               onChanged: (String val) =>
                 setState((){ widget.paint.strokeCap = StrokeCap.values.firstWhere((x) => enumName(x) == val); }),
-              items: _buildDropdownMenuItem(StrokeCap.values.map(enumName).toList()),
+              items: buildDropdownMenuItem(StrokeCap.values.map(enumName).toList()),
             ),
           ),
 
@@ -614,7 +577,7 @@ class _BrushPickerState extends State<_BrushPicker> {
               value: enumName(widget.paint.blendMode),
               onChanged: (String val) =>
                 setState((){ widget.paint.blendMode = BlendMode.values.firstWhere((x) => enumName(x) == val); }),
-              items: _buildDropdownMenuItem(BlendMode.values.map(enumName).toList()),
+              items: buildDropdownMenuItem(BlendMode.values.map(enumName).toList()),
             ),
             onTap: () => setState((){ widget.paint.blendMode = BlendMode.srcOver; }),
           ),
@@ -628,37 +591,11 @@ class _BrushPickerState extends State<_BrushPicker> {
             onTap: () => setState((){ widget.paint.isAntiAlias = !widget.paint.isAntiAlias; }),
           ),
 
-          ListTile(
-            title: Text('Width'),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                IconButton(
-                  padding: const EdgeInsets.all(0.0), 
-                  icon: Icon(Icons.arrow_left),
-                  onPressed: () =>
-                      setState((){ widget.paint.strokeWidth -= 1.0; }),
-                ),
-
-                Container(
-                  width: 50,
-                  child: TextField(
-                    controller: widthController,
-                    textAlign: TextAlign.right,
-                    keyboardType: TextInputType.number,
-                    onChanged: (String v) =>
-                      setState((){ widget.paint.strokeWidth = double.parse(v); }),
-                  ),
-                ),
-
-                IconButton(
-                  padding: const EdgeInsets.all(0.0), 
-                  icon: Icon(Icons.arrow_right),
-                  onPressed: () =>
-                      setState((){ widget.paint.strokeWidth += 1.0; }),
-                ),
-              ],
-            ),
+          NumberPicker('Width',
+            ([double x]) {
+              if (x != null) setState(() => widget.paint.strokeWidth = x);
+              return widget.paint.strokeWidth;
+            }
           ),
 
           Card(
@@ -695,14 +632,4 @@ class _BrushPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_BrushPainter oldDelegate) => true;
-}
-
-
-List<DropdownMenuItem<String>> _buildDropdownMenuItem(List<String> x) {
-  return x.map<DropdownMenuItem<String>>(
-    (String value) => DropdownMenuItem<String>(
-      value: value,
-      child: Text(value),
-    )
-  ).toList();
 }

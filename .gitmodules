@@ -13,3 +13,6 @@
 [submodule "flutter_potrace"]
 	path = flutter_potrace
 	url = https://github.com/GreenAppers/flutter_potrace
+[submodule "gradient_picker"]
+	path = gradient_picker
+	url = https://github.com/GreenAppers/gradient_picker
