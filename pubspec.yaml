@@ -32,6 +32,8 @@ dependencies:
   flutter_native_image:
     git: https://github.com/btastic/flutter_native_image.git
 
+  gradient_app_bar: ^0.0.1
+
   gradient_picker:
     path: ./gradient_picker
 
@@ -53,6 +55,8 @@ dependencies:
     path: ./flutter_potrace
 
   scoped_model: ^1.0.1
+
+  shared_preferences: ^0.5.2
 
   tflite:
     path: ./flutter_tflite

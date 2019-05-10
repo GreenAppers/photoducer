@@ -52,6 +52,8 @@ class PhotoducerModel extends Model {
         case PhotoducerTool.selectScale:
           tool = PhotoducerTool.selectBox;
           break;
+        default:
+          break;
       }
     });
   }
@@ -66,6 +68,8 @@ class PhotoducerModel extends Model {
         case PhotoducerTool.selectMove:
         case PhotoducerTool.selectScale:
           if (selection == null) return;
+          break;
+        default:
           break;
       }
       tool = x;
@@ -136,6 +140,8 @@ class PhotoducerModel extends Model {
         return Icons.colorize;
       case PhotoducerTool.fillFlood:
         return Icons.format_color_fill;
+      default:
+        return null;
     }
   }
 }
@@ -210,7 +216,7 @@ class PaintView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    BusyModel busy = ScopedModel.of<BusyModel>(context, rebuildOnChange: true);
+    ScopedModel.of<BusyModel>(context, rebuildOnChange: true);
     return PhotoView.customChild(
       child: _PaintView(state, layers),
       childSize: layers.canvas.model.state.size,
@@ -243,6 +249,7 @@ class _PaintViewState extends State<_PaintView> {
   int dragCount = 0;
 
   PhotographTransducer get model => widget.layers.canvas.model;
+  void updateState() => setState((){});
 
   @override
   Widget build(BuildContext context) {
@@ -273,6 +280,8 @@ class _PaintViewState extends State<_PaintView> {
               )
             )
           );
+          break;
+        default:
           break;
       }
       if (widget.state.drawSelectionPasteBuffer)
@@ -539,8 +548,8 @@ class _DashedPathPainter extends CustomPainter {
 }
 
 class _TapHandler extends GestureDetector {
-  BuildContext context;
-  OffsetCallback onTapped;
+  final BuildContext context;
+  final OffsetCallback onTapped;
   _TapHandler(this.context, Widget child, {@required this.onTapped}) :
     super(
       child: child,
@@ -568,7 +577,7 @@ abstract class _DragHandler extends Drag {
   void end(DragEndDetails details) {
     dragEnd();
     if (--parent.dragCount == 0)
-      parent.setState((){});
+      parent.updateState();
   }
 
   @override
@@ -697,6 +706,8 @@ class _SelectScaleDragHandler extends _PasteDragHandler {
 }
 
 String assetPath(String name) => 'assets' + Platform.pathSeparator + name;
+
+Rect rectFromSize(Size x) => Rect.fromLTWH(0, 0, x.width, x.height);
 
 Rect centerRect(Rect x, Offset c) =>
   Rect.fromLTWH(c.dx - x.width / 2.0, c.dy - x.height / 2.0, x.width, x.height);

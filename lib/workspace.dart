@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -8,14 +7,13 @@ import 'package:flutter/services.dart';
 
 import 'package:busy_model/busy_model.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
-import 'package:flutter_crashlytics/flutter_crashlytics.dart';
 import 'package:flutter_native_image/flutter_native_image.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:gradient_app_bar/gradient_app_bar.dart';
 import 'package:gradient_picker/gradient_picker.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker_saver/image_picker_saver.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:persistent_canvas/pixel_buffer.dart';
 import 'package:persistent_canvas/persistent_canvas.dart';
 import 'package:persistent_canvas/photograph_transducer.dart';
 import 'package:potrace/potrace.dart';
@@ -24,67 +22,32 @@ import 'package:tflite/tflite.dart';
 
 import 'package:photoducer/photoducer.dart';
 
-void main() async {
-  bool inDebugMode = false;
-  assert(inDebugMode = true);
-  debugPrint('Photoducer main() inDebugMode=' + inDebugMode.toString());
-
-  FlutterError.onError = (FlutterErrorDetails details) {
-    if (inDebugMode) FlutterError.dumpErrorToConsole(details);
-    else Zone.current.handleUncaughtError(details.exception, details.stack);
-  };
-
-  await FlutterCrashlytics().initialize();
-
-  runZoned<Future<void>>(
-    () async {
-      BusyModel busy = BusyModel();
-      runApp(
-        MaterialApp(
-          title: 'Photoducer',
-          theme: ThemeData(
-            primarySwatch: Colors.green,
-          ),
-          home: BusyScope(
-            model: busy,
-            child: PhotoducerApp(busy),
-          ),
-        )
-      );
-    }, onError: (error, stackTrace) async {
-      await FlutterCrashlytics().reportCrash(error, stackTrace, forceCrash: false);
-    }
-  );
-}
-
 /// Top level [Widget] state is already lifted up - no [Model] needed.
-class PhotoducerApp extends StatefulWidget {
-  final BusyModel busy;
-  PhotoducerApp(this.busy);
+class PhotoducerWorkspace extends StatefulWidget {
+  final PersistentCanvasLayers layers;
+  PhotoducerWorkspace(this.layers);
 
   @override
-  _PhotoducerAppState createState() => _PhotoducerAppState(busy);
+  _PhotoducerWorkspaceState createState() => _PhotoducerWorkspaceState(layers);
 }
 
 /// Workspace overlay layer
-class _PhotoducerAppState extends State<PhotoducerApp> {
+class _PhotoducerWorkspaceState extends State<PhotoducerWorkspace> {
   final PersistentCanvasLayers layers;
   final PhotoducerModel photoducerState = PhotoducerModel();
   bool showLayersView = false, showToolbar = true;
   String loadedImage, loadedModel;
   Size loadedImageSize, scaledImageSize;
 
-  _PhotoducerAppState(BusyModel busy) :
-    layers=PersistentCanvasLayers(
-      coordinates: PersistentCanvasCoordinates.normalize,
-      busy: busy
-    );
+  _PhotoducerWorkspaceState(this.layers);
 
   PhotographTransducer get model => layers.canvas.model;
 
   @override
   Widget build(BuildContext context) {
     ScopedModel.of<BusyModel>(context, rebuildOnChange: true);
+    PreferredSizeWidget appBar = buildAppBar(context); 
+    double toolbarHeight = appBar.preferredSize.height + MediaQuery.of(context).padding.top;
 
     List<Widget> column = <Widget>[];
     column.add(
@@ -97,50 +60,10 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     if (showLayersView) 
       column.add(LayersView(photoducerState, layers));
     if (showToolbar) 
-      column.add(buildToolbar(context));
+      column.add(buildToolbar(context, toolbarHeight));
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(loadedImage != null ? loadedImage.split(Platform.pathSeparator).last : 'Photoducer'),
-        actions: <Widget>[
-          Container(
-            child: IconButton(
-              icon: Icon(
-                PhotoducerModel.getToolIconData(photoducerState.tool),
-                color: model.orthogonalState.paint.color,
-              ),
-              tooltip: 'Color',
-              onPressed: pickColor,
-            ),
-            color: model.orthogonalState.backgroundColor,
-            margin: EdgeInsets.all(10.0),
-          ),
-
-          IconButton(
-            icon: Icon(Icons.undo),
-            tooltip: 'Undo',
-            onPressed: () { model.walkVersion(-1); photoducerState.reset(); }
-          ),
-
-          IconButton(
-            icon: Icon(Icons.redo),
-            tooltip: 'Redo',
-            onPressed: () { model.walkVersion(1); photoducerState.reset(); }
-          ),
-
-          (PopupMenuBuilder(icon: Icon(Icons.menu))
-            ..addItem(
-              icon: Icon(showLayersView ? Icons.check_box : Icons.check_box_outline_blank),
-              text: 'Layers', onSelected: (){ setState((){ showLayersView = !showLayersView; }); }
-            )
-            ..addItem(
-              icon: Icon(showToolbar ? Icons.check_box : Icons.check_box_outline_blank),
-              text: 'Toolbar', onSelected: (){ setState((){ showToolbar = !showToolbar; }); }
-            )
-          ).build(),
-        ],
-      ),
-
+      appBar: appBar,
       body: ScopedModel<PhotoducerModel>(
         model: photoducerState,
         child: Container(
@@ -153,7 +76,65 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     );
   }
 
-  Widget buildToolbar(BuildContext c) {
+  Widget buildAppBar(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final IconThemeData iconTheme = IconTheme.of(context);
+    final IconData toolIcon = PhotoducerModel.getToolIconData(photoducerState.tool);
+
+    return GradientAppBar(
+      title: Text(loadedImage != null ? loadedImage.split(Platform.pathSeparator).last : 'Photoducer'),
+      backgroundColorStart: theme.primaryColor,
+      backgroundColorEnd: theme.accentColor,
+      actions: <Widget>[
+        Container(
+          child: IconButton(
+            icon: Text(String.fromCharCode(toolIcon.codePoint),
+              style: TextStyle(
+                foreground: model.orthogonalState.paint,
+                fontFamily: toolIcon.fontFamily,
+                fontSize: iconTheme.size,
+                package: toolIcon.fontPackage,
+              ),
+            ),
+            tooltip: 'Color',
+            onPressed: pickColor,
+          ),
+          color: model.orthogonalState.backgroundColor,
+          margin: EdgeInsets.all(10.0),
+        ),
+
+        IconButton(
+          icon: Icon(Icons.undo),
+          tooltip: 'Undo',
+          onPressed: () { model.walkVersion(-1); photoducerState.reset(); }
+        ),
+
+        IconButton(
+          icon: Icon(Icons.redo),
+          tooltip: 'Redo',
+          onPressed: () { model.walkVersion(1); photoducerState.reset(); }
+        ),
+
+        (PopupMenuBuilder(icon: Icon(Icons.menu))
+          ..addItem(
+            icon: Icon(showLayersView ? Icons.check_box : Icons.check_box_outline_blank),
+            text: 'Layers', onSelected: () => setState(() => showLayersView = !showLayersView),
+          )
+          ..addItem(
+            icon: Icon(showToolbar ? Icons.check_box : Icons.check_box_outline_blank),
+            text: 'Toolbar', onSelected: () => setState(() => showToolbar = !showToolbar),
+          )
+          ..addItem(
+            icon: Icon(Icons.settings),
+            text: 'Settings', onSelected: () => Navigator.of(context).pushNamed('/settings'),
+          )
+        ).build(),
+      ],
+    ); 
+  }
+
+  Widget buildToolbar(BuildContext context, [double height=100.0]) {
+    final ThemeData theme = Theme.of(context);
     List<Widget> toolbar = <Widget>[
       (PopupMenuBuilder(icon: Icon(Icons.save))
         ..addItem(icon: Icon(Icons.refresh),         text: 'New',    onSelected: newImage)
@@ -215,11 +196,6 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
         ..addItem(icon: Icon(Icons.toys),           text: 'Generate Shoe', onSelected: (){ generateImage('edges2shoes'); })
       ).build(),
 
-      (PopupMenuBuilder(icon: Icon(Icons.settings))
-        ..addItem(text: 'repaint',    onSelected: (){ model.updateUploadedStateMethod = model.updateUploadedStateRepaint; })
-        ..addItem(text: 'paintDelta', onSelected: (){ model.updateUploadedStateMethod = model.updateUploadedStatePaintDelta; })
-      ).build(),
-
       (PopupMenuBuilder(icon: Icon(Icons.share))
         ..addItem(text: 'Twitter')
         ..addItem(text: 'Facebook')
@@ -227,9 +203,25 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     ];
 
     return Container(
-      height: 100,
-      child: Card(
-        color: Colors.blueGrey[100],
+      height: height,
+      margin: const EdgeInsets.only(top: 4.0),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [
+              theme.primaryColor,
+              theme.accentColor,
+            ],
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.grey,
+              blurRadius: 6.0,
+            ),
+          ],
+        ),
         child: Center(
           child: ListView(
             shrinkWrap: true,
@@ -267,9 +259,12 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
         actions: <Widget>[
           FlatButton(
             child: const Text('Cancel'),
-            onPressed: () { Navigator.of(context).pop(); },
+            onPressed: () => Navigator.of(context).pop(),
           ),
         ],
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(32.0))
+        ),
       ),
     );
   }
@@ -279,16 +274,28 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Pick a color'),
-        content: SingleChildScrollView(
-          child: ColorPicker(
-            pickerColor: pickerColor,
-            onColorChanged: (Color x) { pickerColor = x; },
-            enableLabel: true,
-            pickerAreaHeightPercent: 0.8,
+        content: buildTitledWidget(context, 'Color',
+          ListView(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            children: <Widget>[
+              Container(
+                margin: const EdgeInsets.only(top: 10.0),
+                child: ColorPicker(
+                  pickerColor: pickerColor,
+                  onColorChanged: (Color x) { pickerColor = x; },
+                  enableLabel: true,
+                  pickerAreaHeightPercent: 0.8,
+                ),
+              ),
+            ],
           ),
         ),
         actions: <Widget>[
+          FlatButton(
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
           FlatButton(
             child: const Text('Done'),
             onPressed: () {
@@ -297,6 +304,9 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
             },
           ),
         ],
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(32.0))
+        ),
       ),
     );
   }
@@ -306,10 +316,8 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Select a font'),
-        content: Container(
-          width: double.maxFinite,
-          child: ListView.builder(
+        content: buildTitledWidget(context, 'Font',
+          ListView.builder(
             shrinkWrap: true,
             scrollDirection: Axis.vertical,
             itemCount: fontFamily.length,
@@ -346,6 +354,9 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
             onPressed: () { Navigator.of(context).pop(); },
           ),
         ],
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(32.0))
+        ),
       ),
     );
   }
@@ -354,7 +365,6 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Brush'),
         content: _BrushPicker(model.orthogonalState.paint),
         actions: <Widget>[
           FlatButton(
@@ -362,6 +372,9 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
             onPressed: () { Navigator.of(context).pop(); },
           ),
         ],
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(32.0))
+        ),
       ),
     );
   }
@@ -370,14 +383,25 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Gradient'),
-        content: GradientPicker(photoducerState.gradient, model.orthogonalState.paint),
+        content: buildTitledWidget(context, 'Gradient',
+          GradientPicker(photoducerState.gradient),
+        ),
         actions: <Widget>[
           FlatButton(
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          FlatButton(
             child: const Text('Done'),
-            onPressed: () { Navigator.of(context).pop(); },
+            onPressed: () {
+              setState(() => model.changeShader(photoducerState.gradient.build(rectFromSize(model.state.size))));
+              Navigator.of(context).pop();
+            },
           ),
         ],
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(32.0))
+        ),
       ),
     );
   }
@@ -546,7 +570,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
 }
 
 class _BrushPicker extends StatefulWidget {
-  Paint paint;
+  final Paint paint;
   _BrushPicker(this.paint);
 
   @override
@@ -556,9 +580,8 @@ class _BrushPicker extends StatefulWidget {
 class _BrushPickerState extends State<_BrushPicker> {
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.maxFinite,
-      child: ListView(
+    return buildTitledWidget(context, 'Brush', 
+      ListView(
         shrinkWrap: true,
         children: <Widget>[
           ListTile(
@@ -570,7 +593,7 @@ class _BrushPickerState extends State<_BrushPicker> {
               items: buildDropdownMenuItem(StrokeCap.values.map(enumName).toList()),
             ),
           ),
-
+       
           ListTile(
             title: Text('Blend'),
             trailing: DropdownButton<String>(
@@ -581,7 +604,7 @@ class _BrushPickerState extends State<_BrushPicker> {
             ),
             onTap: () => setState((){ widget.paint.blendMode = BlendMode.srcOver; }),
           ),
-
+       
           ListTile(
             title: Text('Anti-Alias'),
             trailing: Checkbox(
@@ -590,14 +613,14 @@ class _BrushPickerState extends State<_BrushPicker> {
             ),
             onTap: () => setState((){ widget.paint.isAntiAlias = !widget.paint.isAntiAlias; }),
           ),
-
+       
           NumberPicker('Width',
             ([double x]) {
               if (x != null) setState(() => widget.paint.strokeWidth = x);
-              return widget.paint.strokeWidth;
+              return x ?? widget.paint.strokeWidth;
             }
           ),
-
+       
           Card(
             color: Colors.blueGrey[50],
             child: Container(
@@ -610,7 +633,7 @@ class _BrushPickerState extends State<_BrushPicker> {
           ),
         ]
       ),
-    );
+    ); 
   }
 }
 
@@ -632,4 +655,46 @@ class _BrushPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_BrushPainter oldDelegate) => true;
+}
+
+Widget buildTitledWidget(BuildContext context, String title, Widget content) {
+  final ThemeData theme = Theme.of(context);
+  return Container(
+    width: double.maxFinite,
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Container(
+          padding: EdgeInsets.only(top: 20.0, bottom: 20.0),
+          width: double.maxFinite,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [
+                theme.primaryColor,
+                theme.accentColor,
+              ],
+            ),
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(32.0),
+              topRight: Radius.circular(32.0)
+            ),
+          ),
+          child: Center(
+            child: Text(title,
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+
+        content,
+      ],
+    ),
+  );
 }
