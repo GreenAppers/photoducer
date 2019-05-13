@@ -14,9 +14,8 @@ import 'package:gradient_picker/gradient_picker.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker_saver/image_picker_saver.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:persistent_canvas/persistent_canvas.dart';
+import 'package:persistent_canvas/persistent_canvas_stack.dart';
 import 'package:persistent_canvas/photograph_transducer.dart';
-import 'package:potrace/potrace.dart';
 import 'package:scoped_model/scoped_model.dart';
 import 'package:tflite/tflite.dart';
 
@@ -24,7 +23,7 @@ import 'package:photoducer/photoducer.dart';
 
 /// Top level [Widget] state is already lifted up - no [Model] needed.
 class PhotoducerWorkspace extends StatefulWidget {
-  final PersistentCanvasLayers layers;
+  final PersistentCanvasStack layers;
   PhotoducerWorkspace(this.layers);
 
   @override
@@ -33,7 +32,7 @@ class PhotoducerWorkspace extends StatefulWidget {
 
 /// Workspace overlay layer
 class _PhotoducerWorkspaceState extends State<PhotoducerWorkspace> {
-  final PersistentCanvasLayers layers;
+  final PersistentCanvasStack layers;
   final PhotoducerModel photoducerState = PhotoducerModel();
   bool showLayersView = false, showToolbar = true;
   String loadedImage, loadedModel;
@@ -115,7 +114,7 @@ class _PhotoducerWorkspaceState extends State<PhotoducerWorkspace> {
           onPressed: () { model.walkVersion(1); photoducerState.reset(); }
         ),
 
-        (PopupMenuBuilder(icon: Icon(Icons.menu))
+        (PopupMenuBuilder()
           ..addItem(
             icon: Icon(showLayersView ? Icons.check_box : Icons.check_box_outline_blank),
             text: 'Layers', onSelected: () => setState(() => showLayersView = !showLayersView),
@@ -128,7 +127,7 @@ class _PhotoducerWorkspaceState extends State<PhotoducerWorkspace> {
             icon: Icon(Icons.settings),
             text: 'Settings', onSelected: () => Navigator.of(context).pushNamed('/settings'),
           )
-        ).build(),
+        ).build(icon: Icon(Icons.menu)),
       ],
     ); 
   }
@@ -136,31 +135,30 @@ class _PhotoducerWorkspaceState extends State<PhotoducerWorkspace> {
   Widget buildToolbar(BuildContext context, [double height=100.0]) {
     final ThemeData theme = Theme.of(context);
     List<Widget> toolbar = <Widget>[
-      (PopupMenuBuilder(icon: Icon(Icons.save))
+      (PopupMenuBuilder()
         ..addItem(icon: Icon(Icons.refresh),         text: 'New',    onSelected: newImage)
         ..addItem(icon: Icon(Icons.save),            text: 'Save',   onSelected: saveImage)
-        ..addItem(icon: Icon(Icons.screen_share),    text: 'Export', onSelected: exportSVG)
         ..addItem(icon: Icon(Icons.open_in_browser), text: 'Load',   onSelected: pickImage)
         ..addItem(icon: Icon(Icons.photo_library),   text: 'Stock',  onSelected: pickStockImage)
-      ).build(),
+      ).build(icon: Icon(Icons.save, color: theme.primaryTextTheme.title.color)),
 
-      (PopupMenuBuilder(icon: Icon(Icons.build))
+      (PopupMenuBuilder()
         ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.none),        text: 'Hand',         onSelected: (){ setTool(PhotoducerTool.none); })
         ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.draw),        text: 'Draw',         onSelected: (){ setTool(PhotoducerTool.draw); })
         ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.selectBox),   text: 'Select Box',   onSelected: (){ setTool(PhotoducerTool.selectBox); })
         ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.selectFlood), text: 'Select Wand',  onSelected: (){ setTool(PhotoducerTool.selectFlood); })
         ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.colorSample), text: 'Sample Color', onSelected: (){ setTool(PhotoducerTool.colorSample); })
         ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.fillFlood),   text: 'Fill',         onSelected: (){ setTool(PhotoducerTool.fillFlood); })
-      ).build(),
+      ).build(icon: Icon(Icons.build, color: theme.primaryTextTheme.title.color)),
 
-      (PopupMenuBuilder(icon: Icon(Icons.category))
+      (PopupMenuBuilder()
         ..addItem(icon: Icon(Icons.palette),           text: 'Color',    onSelected: pickColor)
-        ..addItem(icon: Icon(Icons.format_color_text), text: 'Font',     onSelected: pickFont)
-        ..addItem(icon: Icon(Icons.brush),             text: 'Brush',    onSelected: pickBrush)
         ..addItem(icon: Icon(Icons.gradient),          text: 'Gradient', onSelected: pickGradient)
-      ).build(),
+        ..addItem(icon: Icon(Icons.brush),             text: 'Brush',    onSelected: pickBrush)
+        ..addItem(icon: Icon(Icons.format_color_text), text: 'Font',     onSelected: pickFont)
+      ).build(icon: Icon(Icons.category, color: theme.primaryTextTheme.title.color)),
 
-      (PopupMenuBuilder(icon: Icon(Icons.crop_free))
+      (PopupMenuBuilder()
         ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.selectMove),  text: 'Move',  onSelected: (){ setTool(PhotoducerTool.selectMove); })
         ..addItem(icon: PhotoducerModel.getToolIcon(PhotoducerTool.selectScale), text: 'Scale', onSelected: (){ setTool(PhotoducerTool.selectScale); })
         ..addItem(icon: Icon(Icons.content_copy), text: 'Copy',  onSelected: (){
@@ -179,27 +177,22 @@ class _PhotoducerWorkspaceState extends State<PhotoducerWorkspace> {
         ..addItem(icon: Icon(Icons.format_color_fill), text: 'Fill', onSelected: (){
           if (photoducerState.selection != null) layers.canvas.drawPath(photoducerState.selection, model.orthogonalState.paint);
         })
-      ).build(),
+      ).build(icon: Icon(Icons.crop_free, color: theme.primaryTextTheme.title.color)),
 
-      (PopupMenuBuilder(icon: Icon(Icons.border_clear))
+      (PopupMenuBuilder()
         ..addItem(text: 'Blur',        onSelected: (){ model.addDownloadedTransform((img.Image x) => img.gaussianBlur(x, 10)); })
         ..addItem(text: 'Edge detect', onSelected: (){ model.addDownloadedTransform((img.Image x) => img.sobel(x)); })
         ..addItem(text: 'Emboss',      onSelected: (){ model.addDownloadedTransform((img.Image x) => img.emboss(x)); })
         ..addItem(text: 'Vignette',    onSelected: (){ model.addDownloadedTransform((img.Image x) => img.vignette(x)); })
         ..addItem(text: 'Sepia',       onSelected: (){ model.addDownloadedTransform((img.Image x) => img.sepia(x)); })
         ..addItem(text: 'Grayscale',   onSelected: (){ model.addDownloadedTransform((img.Image x) => img.grayscale(x)); })
-      ).build(),
+      ).build(icon: Icon(Icons.border_clear, color: theme.primaryTextTheme.title.color)),
 
-      (PopupMenuBuilder(icon: Icon(Icons.art_track))
+      (PopupMenuBuilder()
         ..addItem(icon: Icon(Icons.art_track),      text: 'Recognize',     onSelected: recognizeImage)
         ..addItem(icon: Icon(Icons.filter_vintage), text: 'Generate Cat',  onSelected: (){ generateImage('contours2cats'); })
         ..addItem(icon: Icon(Icons.toys),           text: 'Generate Shoe', onSelected: (){ generateImage('edges2shoes'); })
-      ).build(),
-
-      (PopupMenuBuilder(icon: Icon(Icons.share))
-        ..addItem(text: 'Twitter')
-        ..addItem(text: 'Facebook')
-      ).build(),
+      ).build(icon: Icon(Icons.art_track, color: theme.primaryTextTheme.title.color)),
     ];
 
     return Container(
@@ -466,25 +459,15 @@ class _PhotoducerWorkspaceState extends State<PhotoducerWorkspace> {
     ui.Image image = model.state.uploaded;
     if (scaledImageSize != null) {
       model.busy.setBusy('Rendering at full resolution');
-      PhotographTransducer fullResTransducer = PhotographTransducer();
-      fullResTransducer.reset(await loadImageFileNamed(loadedImage, downscale: false));
-      fullResTransducer.addList(model.input, startIndex: 1);
-      image = await fullResTransducer.getUploadedState();
+      image = await layers.saveImage(
+        originalResolutionInput: await loadImageFileNamed(loadedImage, downscale: false)
+      );
     }
     model.busy.setBusy('Saving');
     var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
     String filename = await ImagePickerSaver.saveFile(fileData: pngBytes.buffer.asUint8List());
     model.busy.reset();
     return filename;
-  }
-
-  Future<String> exportSVG() async {
-    img.Image downloaded = await model.state.getDownloadedState();
-    String svg = potrace(downloaded);
-    String path = await stashPath('export.svg');
-    debugPrint('exportSVG: ' + path);
-    await File(path).writeAsString(svg);
-    return path;
   }
 
   Future<String> stashPath(String name) async {

@@ -12,6 +12,7 @@ import 'package:gradient_picker/gradient_picker.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_drawing/path_drawing.dart';
 import 'package:persistent_canvas/persistent_canvas.dart';
+import 'package:persistent_canvas/persistent_canvas_stack.dart';
 import 'package:persistent_canvas/photograph_transducer.dart';
 import 'package:persistent_canvas/pixel_buffer.dart';
 import 'package:photo_view/photo_view.dart';
@@ -27,9 +28,9 @@ enum PhotoducerTool { none, draw, colorSample, fillFlood, selectBox, selectFlood
 /// [Model] for the image overlay layer
 class PhotoducerModel extends Model {
   PhotoducerTool tool = PhotoducerTool.draw;
-  int layerIndex;
   Path selection;
   ui.Image pasteBuffer;
+  int displayLayerIndex;
   bool drawSelectionPasteBuffer = false;
   GradientSpec gradient = GradientSpec();
   List objectRecognition;
@@ -146,52 +147,31 @@ class PhotoducerModel extends Model {
   }
 }
 
-/// [LayersView] provides a [ListView] of thumbnails for each layer in [PersistentCanvasLayers]
+/// [LayersView] provides a [ListView] of thumbnails for each layer in [PersistentCanvasStack]
 class LayersView extends StatelessWidget {
   final PhotoducerModel state;
-  final PersistentCanvasLayers layers;
+  final PersistentCanvasStack layers;
 
   LayersView(this.state, this.layers);
 
   @override
   Widget build(BuildContext context) {
-    List<Widget> list = <Widget>[];
-    for (var layer in layers.layer) {
+    List<Widget> list = <Widget>[ buildSpacerMenu(0, Icons.arrow_back) ];
+
+    for (int i=0; i < layers.layer.length; ++i) {
+      PersistentCanvas layer = layers.layer[i];
+
       list.add(
-        Card(
-          child: Image(
-            image: PixelBufferImageProvider(layer.model.state),
+        buildLayerMenu(i,
+          Card(
+            child: Image(
+              image: PixelBufferImageProvider(layer.model.state),
+            ),
           ),
         ),
       );
 
-      list.add((PopupMenuBuilder(icon: Icon(Icons.cached))
-        ..addItem(
-          icon: Icon(Icons.add),
-          text: 'Add Layer',
-          onSelected: (){},
-        )
-        ..addItem(
-          icon: Icon(Icons.arrow_right),
-          text: 'Raise layer',
-          onSelected: (){},
-        )
-        ..addItem(
-          icon: Icon(Icons.arrow_left),
-          text: 'Lower layer',
-          onSelected: (){},
-        )
-        ..addItem(
-          icon: Icon(Icons.skip_next),
-          text: 'Merge up',
-          onSelected: (){},
-        )
-        ..addItem(
-          icon: Icon(Icons.skip_previous),
-          text: 'Merge down',
-          onSelected: (){},
-        )
-      ).build());
+      list.add(buildSpacerMenu(i+1, layer == layers.layer.last ? Icons.arrow_forward : Icons.cached));
     }
 
     return Container(
@@ -205,12 +185,56 @@ class LayersView extends StatelessWidget {
       ),
     );
   }
+
+  Widget buildLayerMenu(int index, Widget child) {
+    return (PopupMenuBuilder()
+      ..addItem(
+        icon: Icon(Icons.add),
+        text: 'Select',
+        onSelected: () => layers.selectedLayerIndex = index,
+      )
+    ).build(
+      child: child,
+    );
+  }
+
+  Widget buildSpacerMenu(int index, IconData icon) {
+    return (PopupMenuBuilder()
+      ..addItem(
+        icon: Icon(Icons.add),
+        text: 'Add Layer',
+        onSelected: () => layers.addLayer(),
+      )
+      ..addItem(
+        icon: Icon(Icons.arrow_right),
+        text: 'Raise layer',
+        onSelected: (){},
+      )
+      ..addItem(
+        icon: Icon(Icons.arrow_left),
+        text: 'Lower layer',
+        onSelected: (){},
+      )
+      ..addItem(
+        icon: Icon(Icons.skip_next),
+        text: 'Merge up',
+        onSelected: (){},
+      )
+      ..addItem(
+        icon: Icon(Icons.skip_previous),
+        text: 'Merge down',
+        onSelected: (){},
+      )
+    ).build(
+      icon: Icon(icon)
+    );
+  }
 }
 
 /// [PaintView] wraps [_PaintView] in a zoomable [PhotoView]
 class PaintView extends StatelessWidget {
   final PhotoducerModel state;
-  final PersistentCanvasLayers layers;
+  final PersistentCanvasStack layers;
 
   PaintView(this.state, this.layers);
 
@@ -228,10 +252,10 @@ class PaintView extends StatelessWidget {
   }
 }
 
-/// [_PaintView] overlays the [PersistentCanvasLayers] image data
+/// [_PaintView] overlays the [PersistentCanvasStack] image data
 class _PaintView extends StatefulWidget {
   final PhotoducerModel state;
-  final PersistentCanvasLayers layers;
+  final PersistentCanvasStack layers;
 
   _PaintView(this.state, this.layers);
 
@@ -259,10 +283,10 @@ class _PaintViewState extends State<_PaintView> {
     Rect selectionBounds = selection != null ? selection.getBounds() : null;
     List<Widget> stack = <Widget>[];
 
-    if (widget.state.layerIndex == null) {
-      stack.add(buildGestureDetector(context, selectionBounds, PersistentCanvasLayersWidget(widget.layers)));
+    if (widget.state.displayLayerIndex == null) {
+      stack.add(buildGestureDetector(context, selectionBounds, PersistentCanvasStackWidget(widget.layers)));
     } else {
-      stack.add(buildGestureDetector(context, selectionBounds, PersistentCanvasWidget(widget.layers.layer[widget.state.layerIndex])));
+      stack.add(buildGestureDetector(context, selectionBounds, PersistentCanvasWidget(widget.layers.layer[widget.layers.selectedLayerIndex])));
     }
     stack.add(Stack(children: buildObjectRecognitionBoxes(context)));
     if (selection != null) {

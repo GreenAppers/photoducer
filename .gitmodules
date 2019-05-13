@@ -1,18 +1,9 @@
 [submodule "flutter_crashlytics"]
 	path = flutter_crashlytics
 	url = https://github.com/GreenAppers/flutter_crashlytics
-[submodule "flutter_tflite"]
-	path = flutter_tflite
-	url = https://github.com/GreenAppers/flutter_tflite
 [submodule "persistent_canvas"]
 	path = persistent_canvas
 	url = https://github.com/GreenAppers/persistent_canvas
-[submodule "image"]
-	path = image
-	url = https://github.com/GreenAppers/image
-[submodule "flutter_potrace"]
-	path = flutter_potrace
-	url = https://github.com/GreenAppers/flutter_potrace
 [submodule "gradient_picker"]
 	path = gradient_picker
 	url = https://github.com/GreenAppers/gradient_picker
