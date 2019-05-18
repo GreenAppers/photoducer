@@ -1,4 +1,8 @@
+// Copyright 2019 Green Appers, Inc. All rights reserved.
+// Use of this source code is governed by a GPL license that can be found in the LICENSE file.
+
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -10,6 +14,7 @@ import 'package:persistent_canvas/persistent_canvas.dart';
 import 'package:persistent_canvas/persistent_canvas_stack.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:photoducer/photoducer.dart';
 import 'package:photoducer/workspace.dart';
 
 void main() async {
@@ -29,7 +34,12 @@ void main() async {
   }
 
   runZoned<Future<void>>(
-    () async => runApp(PhotoducerApp(prefs)),
+    () async {
+      PhotoducerPlugins plugins = PhotoducerPlugins(await stashPath(''));
+      plugins.foundYolov2_tiny(assetPath(''));
+      await plugins.scan();
+      runApp(PhotoducerApp(prefs, plugins));
+    },
     onError: (error, stackTrace) async {
       if (reportCrashes) {
         await FlutterCrashlytics().reportCrash(error, stackTrace, forceCrash: false);
@@ -54,9 +64,43 @@ class PhotoducerPreferences {
   static final String reportCrashesName = 'reportCrashes';
 }
 
+enum PhotoducerPluginType { recognizer, pix2pix }
+
+class PhotoducerPlugin {
+  PhotoducerPluginType type;
+  String name, action, directory;
+  IconData icon;
+  PhotoducerPlugin(this.type, this.name, this.action, this.icon, this.directory);
+}
+
+class PhotoducerPlugins {
+  final String pluginDir;
+  Map<String, PhotoducerPlugin> installed = <String, PhotoducerPlugin>{};
+  PhotoducerPlugins(this.pluginDir);
+
+  void add(PhotoducerPlugin x) { installed[x.name] = x; }
+  void scan() async {
+    debugPrint('Scanning pluginDir ' + pluginDir);
+    await for (FileSystemEntity file in Directory(pluginDir).list()) {
+      //if (file is File && file.path.endsWith('.tflite'))
+        debugPrint("y0y0 " + file.path);
+    }
+  }
+  
+  void foundYolov2_tiny(String directory) =>
+    add(PhotoducerPlugin(PhotoducerPluginType.recognizer, 'yolov2_tiny', 'Recognize', Icons.art_track, directory));
+
+  void foundContours2Cats(String directory) =>
+    add(PhotoducerPlugin(PhotoducerPluginType.pix2pix, 'contours2cats', 'Generate Cat', Icons.filter_vintage, directory));
+
+  void foundEdges2Shoes(String directory) =>
+    add(PhotoducerPlugin(PhotoducerPluginType.pix2pix, 'edges2shoes', 'Generate Shoe', Icons.toys, directory));
+}
+
 class PhotoducerApp extends StatefulWidget {
   final PhotoducerPreferences prefs;
-  PhotoducerApp(this.prefs);
+  final PhotoducerPlugins plugins;
+  PhotoducerApp(this.prefs, this.plugins);
 
   @override
   _PhotoducerAppState createState() => _PhotoducerAppState();
@@ -79,7 +123,7 @@ class _PhotoducerAppState extends State<PhotoducerApp> {
       ),
       home: BusyScope(
         model: layers.busy,
-        child: PhotoducerWorkspace(layers),
+        child: PhotoducerWorkspace(layers, widget.plugins),
       ),
       routes: <String, WidgetBuilder> {
         '/settings': (BuildContext context) => PhotoducerSettings(this, widget.prefs),
@@ -113,8 +157,8 @@ class _PhotoducerSettingsState extends State<PhotoducerSettings> {
             title: Text('Theme'),
             trailing: DropdownButton<String>(
               value: widget.prefs.theme,
-              onChanged: (String val) async {
-                await widget.prefs.setTheme(val);
+              onChanged: (String val) {
+                widget.prefs.setTheme(val);
                 widget.appState.setState((){});
               },
               items: buildDropdownMenuItem(primaryColor.keys.toList()),
@@ -125,8 +169,8 @@ class _PhotoducerSettingsState extends State<PhotoducerSettings> {
             title: Text('Send crash reports and anonymous usage statistics'),
             trailing: Checkbox(
               value: widget.prefs.reportCrashes,
-              onChanged: (bool val) async {
-                await widget.prefs.setReportCrashes(val);
+              onChanged: (bool val) {
+                widget.prefs.setReportCrashes(val);
                 widget.appState.setState((){});
               },
             ),

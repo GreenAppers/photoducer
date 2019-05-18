@@ -1,3 +1,6 @@
+// Copyright 2019 Green Appers, Inc. All rights reserved.
+// Use of this source code is governed by a GPL license that can be found in the LICENSE file.
+
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -148,18 +151,25 @@ class PhotoducerModel extends Model {
 }
 
 /// [LayersView] provides a [ListView] of thumbnails for each layer in [PersistentCanvasStack]
-class LayersView extends StatelessWidget {
+class LayersView extends StatefulWidget {
   final PhotoducerModel state;
   final PersistentCanvasStack layers;
 
   LayersView(this.state, this.layers);
 
   @override
-  Widget build(BuildContext context) {
-    List<Widget> list = <Widget>[ buildSpacerMenu(0, Icons.arrow_back) ];
+  _LayersViewState createState() => _LayersViewState();
+}
 
-    for (int i=0; i < layers.layer.length; ++i) {
-      PersistentCanvas layer = layers.layer[i];
+class _LayersViewState extends State<LayersView> {
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    ScopedModel.of<PersistentCanvasStack>(context, rebuildOnChange: true);
+    List<Widget> list = <Widget>[ buildSpacerMenu(0, true, Icons.arrow_back) ];
+
+    for (int i=0; i < widget.layers.layer.length; ++i) {
+      PersistentCanvas layer = widget.layers.layer[i];
 
       list.add(
         buildLayerMenu(i,
@@ -167,16 +177,35 @@ class LayersView extends StatelessWidget {
             child: Image(
               image: PixelBufferImageProvider(layer.model.state),
             ),
+            shape: i != widget.layers.selectedLayerIndex ? null :
+              RoundedRectangleBorder(
+                side: BorderSide(
+                  color: theme.accentColor,
+                  width: 2.0
+                ),
+                borderRadius: BorderRadius.circular(4.0)
+              ),
           ),
         ),
       );
 
-      list.add(buildSpacerMenu(i+1, layer == layers.layer.last ? Icons.arrow_forward : Icons.cached));
+      bool last = layer == widget.layers.layer.last;
+      list.add(buildSpacerMenu(i+1, last, last ? Icons.arrow_forward : Icons.cached));
     }
 
     return Container(
       height: 100,
-      decoration: BoxDecoration(color: Colors.blueGrey[140]),
+      decoration: BoxDecoration(
+        color: Colors.blueGrey[140],
+        /*
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.grey,
+            blurRadius: 6.0,
+          ),
+        ],
+        */
+      ),
       child: ListView(
         shrinkWrap: true,
         padding: const EdgeInsets.all(10.0),
@@ -189,43 +218,38 @@ class LayersView extends StatelessWidget {
   Widget buildLayerMenu(int index, Widget child) {
     return (PopupMenuBuilder()
       ..addItem(
-        icon: Icon(Icons.add),
+        icon: Icon(Icons.check),
         text: 'Select',
-        onSelected: () => layers.selectedLayerIndex = index,
+        onSelected: () => widget.layers.selectLayer(index),
+      )
+      ..addItem(
+        icon: Icon(Icons.remove),
+        text: 'Remove',
+        onSelected: () => widget.layers.removeLayer(index),
       )
     ).build(
       child: child,
     );
   }
 
-  Widget buildSpacerMenu(int index, IconData icon) {
-    return (PopupMenuBuilder()
-      ..addItem(
-        icon: Icon(Icons.add),
-        text: 'Add Layer',
-        onSelected: () => layers.addLayer(),
-      )
-      ..addItem(
-        icon: Icon(Icons.arrow_right),
-        text: 'Raise layer',
-        onSelected: (){},
-      )
-      ..addItem(
-        icon: Icon(Icons.arrow_left),
-        text: 'Lower layer',
-        onSelected: (){},
-      )
-      ..addItem(
-        icon: Icon(Icons.skip_next),
-        text: 'Merge up',
-        onSelected: (){},
-      )
-      ..addItem(
-        icon: Icon(Icons.skip_previous),
-        text: 'Merge down',
-        onSelected: (){},
-      )
-    ).build(
+  Widget buildSpacerMenu(int index, bool last, IconData icon) {
+    PopupMenuBuilder builder = PopupMenuBuilder();
+    builder.addItem(
+      icon: Icon(Icons.add),
+      text: 'Add Layer',
+      onSelected: () => widget.layers.addLayer(index),
+    );
+    if (!last) builder.addItem(
+      icon: Icon(Icons.cached),
+      text: 'Swap layers',
+      onSelected: () => widget.layers.swapLayer(index-1, index),
+    );
+    if (!last) builder.addItem(
+      icon: Icon(Icons.merge_type),
+      text: 'Merge layers',
+      onSelected: () => widget.layers.mergeLayer(index-1, index),
+    );
+    return builder.build(
       icon: Icon(icon)
     );
   }
@@ -240,7 +264,7 @@ class PaintView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    ScopedModel.of<BusyModel>(context, rebuildOnChange: true);
+    ScopedModel.of<PersistentCanvasStack>(context, rebuildOnChange: true);
     return PhotoView.customChild(
       child: _PaintView(state, layers),
       childSize: layers.canvas.model.state.size,
@@ -409,30 +433,6 @@ class _PaintViewState extends State<_PaintView> {
       default:
         return child;
     }
-  }
-
-  Widget buildDragRecognizer(Widget child, GestureMultiDragStartCallback onStart, {VoidCallback onTap}) {
-    var gestures = <Type, GestureRecognizerFactory> {
-      ImmediateMultiDragGestureRecognizer: GestureRecognizerFactoryWithHandlers<ImmediateMultiDragGestureRecognizer>(
-        () => ImmediateMultiDragGestureRecognizer(),
-        (ImmediateMultiDragGestureRecognizer instance) {
-          instance..onStart = onStart;
-        }
-      )
-    };
-    if (onTap != null) {
-      gestures[TapGestureRecognizer] = GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
-        () => TapGestureRecognizer(),
-        (TapGestureRecognizer instance) {
-          instance..onTap = onTap;
-        }
-      );
-    }
-    return RawGestureDetector(
-      child: child,
-      behavior: HitTestBehavior.opaque,
-      gestures: gestures,
-    );
   }
 
   Widget buildSelectRect(Rect box) {
@@ -730,11 +730,6 @@ class _SelectScaleDragHandler extends _PasteDragHandler {
 }
 
 String assetPath(String name) => 'assets' + Platform.pathSeparator + name;
-
-Rect rectFromSize(Size x) => Rect.fromLTWH(0, 0, x.width, x.height);
-
-Rect centerRect(Rect x, Offset c) =>
-  Rect.fromLTWH(c.dx - x.width / 2.0, c.dy - x.height / 2.0, x.width, x.height);
 
 Offset localCoordinates(BuildContext context, Offset p) {
   RenderBox box = context.findRenderObject();

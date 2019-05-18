@@ -1,3 +1,6 @@
+// Copyright 2019 Green Appers, Inc. All rights reserved.
+// Use of this source code is governed by a GPL license that can be found in the LICENSE file.
+
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -19,12 +22,16 @@ import 'package:persistent_canvas/photograph_transducer.dart';
 import 'package:scoped_model/scoped_model.dart';
 import 'package:tflite/tflite.dart';
 
+import 'package:photoducer/main.dart';
 import 'package:photoducer/photoducer.dart';
+
+typedef StringCallback = void Function(String);
 
 /// Top level [Widget] state is already lifted up - no [Model] needed.
 class PhotoducerWorkspace extends StatefulWidget {
   final PersistentCanvasStack layers;
-  PhotoducerWorkspace(this.layers);
+  final PhotoducerPlugins plugins;
+  PhotoducerWorkspace(this.layers, this.plugins);
 
   @override
   _PhotoducerWorkspaceState createState() => _PhotoducerWorkspaceState(layers);
@@ -67,8 +74,11 @@ class _PhotoducerWorkspaceState extends State<PhotoducerWorkspace> {
         model: photoducerState,
         child: Container(
           decoration: BoxDecoration(color: Colors.blueGrey[50]),
-          child: Column(
-            children: column,
+          child: ScopedModel<PersistentCanvasStack>(
+            model: layers,
+            child: Column(
+              children: column,
+            ),
           ),
         ),
       ),
@@ -188,10 +198,7 @@ class _PhotoducerWorkspaceState extends State<PhotoducerWorkspace> {
         ..addItem(text: 'Grayscale',   onSelected: (){ model.addDownloadedTransform((img.Image x) => img.grayscale(x)); })
       ).build(icon: Icon(Icons.border_clear, color: theme.primaryTextTheme.title.color)),
 
-      (PopupMenuBuilder()
-        ..addItem(icon: Icon(Icons.art_track),      text: 'Recognize',     onSelected: recognizeImage)
-        ..addItem(icon: Icon(Icons.filter_vintage), text: 'Generate Cat',  onSelected: (){ generateImage('contours2cats'); })
-        ..addItem(icon: Icon(Icons.toys),           text: 'Generate Shoe', onSelected: (){ generateImage('edges2shoes'); })
+      (pluginsPopupMenuBuilder()
       ).build(icon: Icon(Icons.art_track, color: theme.primaryTextTheme.title.color)),
     ];
 
@@ -224,6 +231,27 @@ class _PhotoducerWorkspaceState extends State<PhotoducerWorkspace> {
         ),
       ),
     );
+  }
+
+  PopupMenuBuilder pluginsPopupMenuBuilder() {
+    PopupMenuBuilder ret = PopupMenuBuilder();
+    for (PhotoducerPlugin plugin in widget.plugins.installed.values) {
+      StringCallback cb;
+      switch (plugin.type) {
+        case PhotoducerPluginType.recognizer:
+          cb = recognizeImage;
+          break;
+        case PhotoducerPluginType.pix2pix:
+          cb = generateImage;
+          break;
+      }
+      ret.addItem(
+        icon: Icon(plugin.icon),
+        text: plugin.action,
+        onSelected: () => cb(plugin.name),
+      );
+    }
+    return ret;
   }
 
   void setTool(PhotoducerTool tool) => setState((){ photoducerState.setTool(tool); });
@@ -376,6 +404,7 @@ class _PhotoducerWorkspaceState extends State<PhotoducerWorkspace> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
+        contentPadding: const EdgeInsets.fromLTRB(24.0, 20.0, 24.0, 0.0),
         content: buildTitledWidget(context, 'Gradient',
           GradientPicker(photoducerState.gradient),
         ),
@@ -470,20 +499,6 @@ class _PhotoducerWorkspaceState extends State<PhotoducerWorkspace> {
     return filename;
   }
 
-  Future<String> stashPath(String name) async {
-    Directory directory = await getApplicationDocumentsDirectory();
-    return directory.path + Platform.pathSeparator + name;
-  }
-
-  Future<String> stashImagePath(String name) async => stashPath(name + '.png');
-
-  Future<String> stashImage(ui.Image image, String name) async {
-    var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    String path = await stashImagePath(name);
-    File(path).writeAsBytesSync(pngBytes.buffer.asInt8List());
-    return path;
-  }
-
   Future<String> stashRenderedImage(String name) async {
     ui.Image image = model.state.uploaded;
     return stashImage(image, name);
@@ -511,12 +526,13 @@ class _PhotoducerWorkspaceState extends State<PhotoducerWorkspace> {
     ui.Image uploadedImage = await loadImageFileBytes(result);
 
     model.busy.reset();
-    model.addRedraw(uploadedImage);
+    model.addImage(uploadedImage);
   }
 
-  Future<void> recognizeImage() async {
+  Future<void> recognizeImage(String modelName) async {
+    debugPrint('rec called ' + modelName);
     model.busy.setBusy('Recognizing');
-    var loaded = await loadModel("yolov2_tiny");
+    var loaded = await loadModel(modelName);
     if (!loaded) return;
 
     ui.Image input = model.state.uploaded;
@@ -597,11 +613,14 @@ class _BrushPickerState extends State<_BrushPicker> {
             onTap: () => setState((){ widget.paint.isAntiAlias = !widget.paint.isAntiAlias; }),
           ),
        
-          NumberPicker('Width',
-            ([double x]) {
-              if (x != null) setState(() => widget.paint.strokeWidth = x);
-              return x ?? widget.paint.strokeWidth;
-            }
+          ListTile(
+            title: Text('Width'),
+            trailing: NumberPicker(
+              ([double x]) {
+                if (x != null) setState(() => widget.paint.strokeWidth = x);
+                return x ?? widget.paint.strokeWidth;
+              }
+            ),
           ),
        
           Card(
@@ -650,7 +669,7 @@ Widget buildTitledWidget(BuildContext context, String title, Widget content) {
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Container(
-          padding: EdgeInsets.only(top: 20.0, bottom: 20.0),
+          padding: EdgeInsets.only(top: 15.0, bottom: 15.0),
           width: double.maxFinite,
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -680,4 +699,18 @@ Widget buildTitledWidget(BuildContext context, String title, Widget content) {
       ],
     ),
   );
+}
+
+Future<String> stashPath(String name) async {
+  Directory directory = await getApplicationDocumentsDirectory();
+  return directory.path + Platform.pathSeparator + name;
+}
+
+Future<String> stashImagePath(String name) async => stashPath(name + '.png');
+
+Future<String> stashImage(ui.Image image, String name) async {
+  var pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
+  String path = await stashImagePath(name);
+  File(path).writeAsBytesSync(pngBytes.buffer.asInt8List());
+  return path;
 }
